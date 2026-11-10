@@ -1,7 +1,6 @@
 #pragma once
-// For hosts whose kernel already implements the Vd* video exports (ReXGlue): the GPU services
-// those exports reach. A XenonRecomp port doesn't need this; ReGPU provides the exports itself
-// (REGPU_GUEST_EXPORTS).
+// The GPU services the kernel's Vd* video exports reach (src/kernel/xboxkrnl/xboxkrnl_video.cpp,
+// through IGraphicsSystem and the rexgpu-regpu plugin).
 #include <cstdint>
 
 namespace regpu::driver
@@ -21,8 +20,8 @@ void SetRefreshRate(double hz);
 // environment variable, this also reaches switches read when the library loads.
 void SetSwitch(const char* name, bool on);
 
-// The register file (guest 0x7FC80000 + index * 4), for the host's MMIO handler. Without
-// REGPU_GUEST_EXPORTS the registers live in host memory, so guest accesses must come here.
+// The register file (guest 0x7FC80000 + index * 4), for the host's MMIO handler: the registers
+// live in host memory, so guest accesses must come here.
 uint32_t ReadRegister(uint32_t index);
 void WriteRegister(uint32_t index, uint32_t value);
 } // namespace regpu::driver

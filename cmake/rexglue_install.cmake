@@ -15,6 +15,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/rexglue_helpers.cmake)
 set(REXGLUE_INSTALL_TARGETS
     rexruntime
     rexgpu-xenos
+    rexgpu-regpu
     rexglue-updater
     disruptorplus renderdoc simde tomlplusplus
     aes128 mspack o1heap disasm xxhash

@@ -975,7 +975,9 @@ bool ReXApp::SetupPresentation() {
       }
     }
     window_->SetPresenter(presenter);
-  } else if (!graphics_system) {
+  } else if (graphics_system) {
+    graphics_system->SetHostWindow(window_->GetNativeWindowHandle());
+  } else {
     immediate_drawer_ = OnCreateImmediateDrawer();
     if (immediate_drawer_) {
       SetupOverlays(nullptr, immediate_drawer_.get());
@@ -1121,6 +1123,9 @@ void ReXApp::OnClosing(ui::UIEvent& e) {
   }
   if (runtime_ && runtime_->kernel_state()) {
     runtime_->kernel_state()->TerminateTitle();
+  }
+  if (auto* graphics_system = runtime_->graphics_system()) {
+    graphics_system->FlushCaches();
   }
 
   REXLOG_INFO("Title terminated; hard-exiting process.");

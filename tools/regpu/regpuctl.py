@@ -1,4 +1,4 @@
-"""Drives the running game through its debug server (src/debug.cpp), so a test doesn't need a restart.
+"""Drives the running game through its debug server (src/regpu/debug.cpp), so a test doesn't need a restart.
 
   regpuctl.py start [NAME=VALUE ...]   start the game ($REGPU_GAME) with REGPU_DEBUG=1 (and those variables), wait for it
   regpuctl.py <command> [args]         one command; prints the reply

@@ -2,8 +2,7 @@
 // shows up as an unresolved external. Not meant to run.
 #include "regpu/regpu.h"
 
-int main()
-{
-    regpu::Start();
-    regpu::SaveCaches();
+int main() {
+  regpu::Start();
+  regpu::SaveCaches();
 }

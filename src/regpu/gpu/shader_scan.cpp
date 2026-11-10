@@ -44,7 +44,7 @@ uint64_t Fnv(const uint32_t* p, size_t n)
 // The end (byte offset into the view) of the run of committed, readable memory at offset, or
 // offset itself when the page there is not; *skip gets where the next run may start. A host that
 // commits guest memory on demand (ReXGlue) leaves most of the view reserved only: reading it
-// faults. (A XenonRecomp port commits all of it.)
+// faults.
 uint32_t ReadableEnd(uint32_t offset, uint32_t end, uint32_t* skip)
 {
     MEMORY_BASIC_INFORMATION mbi{};

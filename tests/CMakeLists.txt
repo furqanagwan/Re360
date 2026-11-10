@@ -12,6 +12,9 @@ endif()
 # D3D12 capability/fixture tests (Windows D3D12 only)
 add_subdirectory(gpu)
 
+# ReGPU through the GPU plugin ABI (gpu_plugin=regpu)
+add_subdirectory(regpu)
+
 # The opt-in DXIL toolchain (RG-GDK-032 stage 1)
 if(REXGLUE_SHADER_DXIL)
   add_subdirectory(dxil)

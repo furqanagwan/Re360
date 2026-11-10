@@ -39,7 +39,7 @@
 #include "gpu/dlss.h"
 #include "gpu/fsr3.h"
 #include "gpu/recorded_list.h"
-#include "fsr1_cs.h"
+#include "gpu/bytecode/fsr1_cs.h"
 #include <DirectXPackedVector.h>
 #include "live_switch.h"
 #include "settings.h"
@@ -2832,7 +2832,7 @@ bool DynamicBuffer(uint32_t address, uint32_t bytes)
     return dynamic;
 }
 
-// Whether guest memory can be read. A XenonRecomp port commits all of it; a host that protects
+// Whether guest memory can be read. A host that protects
 // unallocated guest pages (ReXGlue: no access) faults on a fetch that runs past an allocation,
 // which the GPU reading the same memory in place would see as zeros. (Its fault handler runs
 // before any of ours, so the range is checked first.) VirtualQuery is slow on a large mapped view

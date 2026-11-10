@@ -1,4 +1,4 @@
-"""Decode an XBDM screenshot (tools/xbdm.py screenshot): xbox_fb.py in.raw out.png [width height pitch_px] [--linear]
+"""Decode an XBDM screenshot (tools/regpu/xbdm.py screenshot): xbox_fb.py in.raw out.png [width height pitch_px] [--linear]
 
 The framebuffer is Xenos 2D-tiled 32-bit pixels (as untile8.py with 4 bytes per texel); bytes are
 B, G, R, A (checked against a console screenshot). Writes an 8-bit RGB PNG without third-party modules.

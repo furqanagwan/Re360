@@ -21,5 +21,6 @@ else()
     add_executable({{ names.original }} {{ cmake_var(names.upper_case + "_SOURCES") }})
 endif()
 
-# Stages the D3D12 GPU plugin next to the executable; run with --gpu_plugin=xenos.
-rexglue_setup_target({{ names.original }} GPU_PLUGINS xenos)
+# Stages both GPU plugins next to the executable. xenos is the default;
+# run with --gpu_plugin=regpu for ReGPU.
+rexglue_setup_target({{ names.original }} GPU_PLUGINS xenos regpu)

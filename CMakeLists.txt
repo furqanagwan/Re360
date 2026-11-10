@@ -1,4 +1,4 @@
-# ReXGlue SDK - Xbox 360 Recompilation Toolkit
+# Re360 - Xbox 360 recompilation toolkit (the ReXGlue SDK with ReGPU)
 cmake_minimum_required(VERSION 3.25)
 
 # Windows is the only supported host (RG-GDK-024).
@@ -244,6 +244,7 @@ add_subdirectory(src/ui)
 add_subdirectory(src/input)
 add_subdirectory(src/audio)
 add_subdirectory(src/graphics)
+add_subdirectory(src/regpu)
 add_subdirectory(src/system)
 add_subdirectory(src/updater)
 add_subdirectory(src/kernel)
@@ -269,14 +270,14 @@ include(cmake/rexglue_link_audit.cmake)
 
 # Print configuration summary
 message(STATUS "===========================================")
-message(STATUS "ReXGlue Configuration Summary:")
+message(STATUS "Re360 (ReXGlue) Configuration Summary:")
 message(STATUS "  Version: ${REXGLUE_FULL_VERSION} (${REXGLUE_VERSION_CHANNEL})")
 message(STATUS "  Platform: ${REX_PLATFORM}")
 message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")
 message(STATUS "  Configurations: ${CMAKE_CONFIGURATION_TYPES}")
 message(STATUS "  Output Dir: ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
 message(STATUS "  C++ Standard: C++${CMAKE_CXX_STANDARD}")
-message(STATUS "  Graphics: D3D12")
+message(STATUS "  Graphics: D3D12 (GPU plugins: xenos, regpu)")
 message(STATUS "  FidelityFX: ${REXGLUE_ENABLE_FIDELITYFX}")
 message(STATUS "  Tracy: ${REXGLUE_ENABLE_TRACY}")
 message(STATUS "  Perf Counters: ${REXGLUE_ENABLE_PERF_COUNTERS}")

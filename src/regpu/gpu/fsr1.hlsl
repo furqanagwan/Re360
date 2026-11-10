@@ -1,6 +1,6 @@
 // FSR 1 (AMD FidelityFX Super Resolution 1.0, MIT): EASU upscale and RCAS sharpen as
-// compute shaders. Flattened with the FidelityFX headers into fsr1_hlsl.h at build time
-// (tools/embed_hlsl.py) and compiled at startup.
+// compute shaders. Flattened with the FidelityFX headers and compiled into the checked-in
+// gpu/bytecode/fsr1_cs.h (tools/regpu/embed_hlsl.py; the regpu-fsr1-bytecode build target).
 #define FFX_GPU 1
 #define FFX_HLSL 1
 #define FFX_HALF 0

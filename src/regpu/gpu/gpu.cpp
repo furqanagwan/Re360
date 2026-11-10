@@ -20,7 +20,7 @@
 #include "render/presenter.h"
 #include "live_switch.h"
 #include "settings.h"
-#include "kernel/imports.h"
+#include "kernel/guest.h"
 #include "kernel/thread.h"
 #include "regpu/driver.h"
 
@@ -85,23 +85,6 @@ struct Gpu
     std::atomic<uint32_t> waitingRef{ 0 }, waitingInfo{ 0 };
     std::atomic<uint32_t> interruptsRaised{ 0 };
     std::atomic<uint64_t> draws{ 0 };
-    // Physical addresses of VdSwap's blocks not yet reached by the command
-    // processor; reaching one ends the frame for the renderer.
-    std::mutex swapMutex;
-    struct PendingSwap
-    {
-        uint32_t block;      // physical address of VdSwap's 64 dwords
-        uint64_t frame;
-        uint32_t frontBuffer; // physical address of the front buffer
-    };
-    std::deque<PendingSwap> pendingSwaps;
-    // The NOP blocks of the pending swaps, readable without the lock: the command processor
-    // checks every NOP against them (most NOPs are padding and match nothing).
-    std::atomic<uint32_t> swapBlocks[16]{};
-    std::atomic<uint32_t> swapBlockNext{ 0 };
-    // A bit per (address >> 2) & 255 of those blocks, set before them: a padding NOP is turned away
-    // with one load instead of sixteen (NOPs were ~4% of the command processor in a race).
-    std::atomic<uint64_t> swapFilter[4]{};
     // Predicated tiling: type-3 packets with the predicate bit run only
     // when (binSelect & binMask) != 0. D3D replays each frame per tile and
     // predicates its once-per-frame packets (swap callbacks, fences).
@@ -915,29 +898,8 @@ uint32_t ExecutePacket(uint32_t ptr)
         WriteRegister(header & 0x7FF, LoadBE32(ptr + 4));
         WriteRegister((header >> 11) & 0x7FF, LoadBE32(ptr + 8));
         return 3;
-    case 2: // type 2: nop (VdSwap fills its block with these)
-    {
-        // (Guest and physical addresses share their low bits.)
-        if (const uint32_t h = (ptr >> 2) & 255; !((g_gpu.swapFilter[h >> 6].load(std::memory_order_acquire) >> (h & 63)) & 1))
-            return 1;
-        bool candidate = false;
-        for (const auto& b : g_gpu.swapBlocks)
-            candidate |= b.load(std::memory_order_acquire) == (ptr & 0x1FFFFFFF);
-        if (!candidate)
-            return 1;
-        std::lock_guard lock(g_gpu.swapMutex);
-        for (size_t i = 0; i < g_gpu.pendingSwaps.size(); i++)
-        {
-            if (g_gpu.pendingSwaps[i].block == (ptr & 0x1FFFFFFF))
-            {
-                const auto swap = g_gpu.pendingSwaps[i];
-                g_gpu.pendingSwaps.erase(g_gpu.pendingSwaps.begin(), g_gpu.pendingSwaps.begin() + i + 1);
-                PresentSwap(swap.frame, swap.frontBuffer);
-                break;
-            }
-        }
+    case 2: // type 2: nop
         return 1;
-    }
     default:
         break;
     }
@@ -968,8 +930,8 @@ uint32_t ExecutePacket(uint32_t ptr)
     {
     case 0x64: // XE_SWAP: 'SWAP', front buffer physical address, width, height
     {
-        // Not a Xenos packet: Xenia's VdSwap, and ReXGlue's after it, writes it into the swap's
-        // block instead of NOPs. ReGPU's own VdSwap never does, so XenonRecomp ports don't see it.
+        // Not a Xenos packet: the kernel's VdSwap (xboxkrnl_video.cpp, as Xenia's) writes it into
+        // the swap's block, so the frame ends when the command processor reaches it.
         if (count >= 2 && arg(0) == 0x53574150)
         {
             const uint64_t n = ++g_gpu.swaps;
@@ -1711,8 +1673,7 @@ void PresentSwap(uint64_t frame, uint32_t frontBuffer)
         FrameOnSwap(frame, frontBuffer);
 }
 
-// Per swap, on the thread that swaps (the title's in VdSwap, or the command processor's for
-// XE_SWAP): the hang watchdog and the frame limiter.
+// Per swap, on the command processor's thread (XE_SWAP): the hang watchdog and the frame limiter.
 void PaceSwap(uint64_t frame)
 {
     if (frame == 1 || (frame & (frame - 1)) == 0 || frame % 60 == 0)
@@ -1836,161 +1797,3 @@ void regpu::driver::WriteRegister(uint32_t index, uint32_t value)
     // from a guest thread.)
     WriteLut(index, value);
 }
-
-#if REGPU_GUEST_EXPORTS
-// Imports ------------------------------------------------------------------
-
-GUEST_EXPORT(VdInitializeEngines)
-{
-    Return(ctx, 1);
-}
-
-GUEST_EXPORT(VdShutdownEngines) {}
-
-GUEST_EXPORT(VdSetGraphicsInterruptCallback)
-{
-    regpu::driver::SetInterruptCallback(ctx.r3.u32, ctx.r4.u32);
-}
-
-GUEST_EXPORT(VdInitializeRingBuffer)
-{
-    regpu::driver::InitializeRingBuffer(ctx.r3.u32, ctx.r4.u32);
-}
-
-GUEST_EXPORT(VdEnableRingBufferRPtrWriteBack)
-{
-    // (address, block log2)
-    regpu::driver::EnableReadPointerWriteBack(ctx.r3.u32, ctx.r4.u32);
-}
-
-GUEST_EXPORT(VdSetSystemCommandBufferGpuIdentifierAddress) {}
-
-GUEST_EXPORT(VdGetSystemCommandBuffer)
-{
-    // (buffer*, gpuIdentifier*)
-    static uint32_t buffer = RegpuGuestAlloc(Heap::Physical, 0x10000, 0x1000);
-    StoreIfNonNull(ctx.r3.u32, buffer);
-    StoreIfNonNull(ctx.r4.u32, 0xBEEF0000);
-}
-
-namespace
-{
-// X_VIDEO_MODE.
-void WriteVideoMode(uint32_t mode)
-{
-    memset(GuestPtr(mode), 0, 0x30);
-    StoreBE32(mode + 0x00, 1280); // display width
-    StoreBE32(mode + 0x04, 720);  // display height
-    StoreBE32(mode + 0x08, 0);    // interlaced
-    StoreBE32(mode + 0x0C, 1);    // widescreen
-    StoreBE32(mode + 0x10, 1);    // high definition
-    const float refresh = 60.0f;
-    uint32_t bits;
-    memcpy(&bits, &refresh, 4);
-    StoreBE32(mode + 0x14, bits);
-    StoreBE32(mode + 0x18, 1);    // NTSC-M standard
-    StoreBE32(mode + 0x1C, 0x4A);
-    StoreBE32(mode + 0x20, 0x01);
-}
-}
-
-GUEST_EXPORT(VdQueryVideoMode)
-{
-    WriteVideoMode(ctx.r3.u32);
-}
-
-GUEST_EXPORT(XGetVideoMode)
-{
-    WriteVideoMode(ctx.r3.u32);
-}
-
-GUEST_EXPORT(VdQueryVideoFlags)
-{
-    Return(ctx, 0x7); // widescreen | 1280 | hi-def
-}
-
-GUEST_EXPORT(VdGetCurrentDisplayGamma)
-{
-    // (type*, power*)
-    StoreIfNonNull(ctx.r3.u32, 2);
-    const float power = 2.22222233f;
-    uint32_t bits;
-    memcpy(&bits, &power, 4);
-    StoreIfNonNull(ctx.r4.u32, bits);
-}
-
-GUEST_EXPORT(VdGetCurrentDisplayInformation)
-{
-    // X_DISPLAY_INFO (0x58 bytes); the title reads the sizes.
-    const uint32_t info = ctx.r3.u32;
-    memset(GuestPtr(info), 0, 0x58);
-    auto set16 = [&](uint32_t off, uint16_t v) { *GuestPtr<uint16_t>(info + off) = __builtin_bswap16(v); };
-    set16(0x00, 1280); // front buffer width
-    set16(0x02, 720);  // front buffer height
-    *GuestPtr<uint8_t>(info + 0x04) = 0;
-    *GuestPtr<uint8_t>(info + 0x05) = 0;
-    StoreBE32(info + 0x14, 320);  // horizontal pixels-per-inch-ish fields
-    set16(0x40, 1280); // display width
-    set16(0x42, 720);  // display height
-    StoreBE32(info + 0x50, 60);   // refresh rate
-}
-
-GUEST_EXPORT(VdSetDisplayMode)
-{
-    Return(ctx, 0);
-}
-
-GUEST_EXPORT(VdPersistDisplay)
-{
-    StoreIfNonNull(ctx.r4.u32, 0);
-    Return(ctx, 0);
-}
-
-GUEST_EXPORT(VdRetrainEDRAM) { Return(ctx, 0); }
-GUEST_EXPORT(VdRetrainEDRAMWorker) { Return(ctx, 0); }
-GUEST_EXPORT(VdIsHSIOTrainingSucceeded) { Return(ctx, 1); }
-GUEST_EXPORT(VdEnableDisableClockGating) {}
-GUEST_EXPORT(VdCallGraphicsNotificationRoutines) { Return(ctx, 0); }
-
-GUEST_EXPORT(VdInitializeScalerCommandBuffer)
-{
-    // Last argument is the destination; fill it with type-2 NOPs.
-    const uint32_t dest = StackArg(ctx, 8);
-    if (dest)
-    {
-        for (uint32_t i = 0; i < 0x1CC / 4; i++)
-            StoreBE32(dest + i * 4, 0x80000000);
-    }
-    Return(ctx, 0x1CC / 4);
-}
-
-GUEST_EXPORT(VdSwap)
-{
-    // (buffer (64 dwords in the ring), fetch constant, ..., frontbuffer*, format*, colorspace*, width*, height*)
-    const uint32_t buffer = ctx.r3.u32;
-    // The 64 dwords reserved for the swap become type-2 NOPs: D3D walks
-    // retired command memory on the CPU and reads other headers as links.
-    for (uint32_t i = 0; i < 64; i++)
-        StoreBE32(buffer + i * 4, 0x80000000);
-    const uint64_t n = ++g_gpu.swaps;
-    {
-        std::lock_guard lock(g_gpu.swapMutex);
-        // r4: the front buffer's texture fetch constant (6 dwords).
-        const uint32_t frontBuffer = ctx.r4.u32 ? (LoadBE32(ctx.r4.u32 + 4) & 0x1FFFF000) : 0;
-        g_gpu.swapBlocks[g_gpu.swapBlockNext++ % 16].store(buffer & 0x1FFFFFFF, std::memory_order_release);
-        uint64_t filter[4] = {};
-        for (const auto& b : g_gpu.swapBlocks)
-        {
-            const uint32_t h = (b.load(std::memory_order_relaxed) >> 2) & 255;
-            filter[h >> 6] |= 1ull << (h & 63);
-        }
-        for (int i = 0; i < 4; i++)
-            g_gpu.swapFilter[i].store(filter[i], std::memory_order_release);
-        g_gpu.pendingSwaps.push_back({ buffer & 0x1FFFFFFF, n, frontBuffer });
-        if (g_gpu.pendingSwaps.size() > 16)
-            g_gpu.pendingSwaps.pop_front();
-    }
-    PaceSwap(n);
-    Return(ctx, 0);
-}
-#endif // REGPU_GUEST_EXPORTS

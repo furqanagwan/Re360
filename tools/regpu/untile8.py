@@ -1,7 +1,7 @@
 """Untile Xenos 8-bit planes: untile8.py in.raw out.raw width height pitch
 
 in.raw holds frames of pitch * align32(height) bytes in the Xenos 2D tiled
-layout (as in src/gpu/texture.cpp); out.raw gets width x height linear frames.
+layout (as in src/regpu/gpu/texture.cpp); out.raw gets width x height linear frames.
 """
 import sys
 

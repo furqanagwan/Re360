@@ -146,7 +146,7 @@ endfunction()
 
 # Configure a rexglue target with SDK libraries and platform settings.
 # Call after add_executable() in your CMakeLists.txt.
-# Usage: rexglue_setup_target(<target> [GPU_PLUGINS xenos])
+# Usage: rexglue_setup_target(<target> [GPU_PLUGINS xenos regpu])
 # Each [[title_update]] in the manifest also gets <target>_tu<version>, built
 # from the same host sources against that version's generated code.
 macro(rexglue_setup_target target_name)

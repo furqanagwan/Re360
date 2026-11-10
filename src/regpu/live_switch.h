@@ -1,6 +1,6 @@
 #pragma once
 // An on/off REGPU_* switch that the debug server can flip while the game runs ("switch NAME 0|1",
-// tools/regpuctl.py). It starts from the environment variable (set = on), like the getenv() checks it
+// tools/regpu/regpuctl.py). It starts from the environment variable (set = on), like the getenv() checks it
 // replaces, and reading it is one relaxed atomic load. Declare it static where it's used:
 //     static LiveSwitch noFoo("REGPU_NO_FOO");
 //     if (!noFoo) ...

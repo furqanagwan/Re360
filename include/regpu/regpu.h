@@ -1,15 +1,16 @@
 #pragma once
-// ReGPU: the Xbox 360 GPU (Xenos) for XenonRecomp ports, on Direct3D 12.
+// ReGPU: Re360's lean Xbox 360 GPU (Xenos) renderer, on Direct3D 12.
 //
-// The game fills in Config and Host before calling Start, and implements nothing else of the GPU:
-// ReGPU provides the console's Vd* video exports (PPC_FUNC __imp__Vd...), runs the command processor
-// and the graphics interrupt, translates shaders, emulates EDRAM and resolves, and presents the frames.
+// The host fills in Config and Host before calling Start. ReGPU runs the command processor and the
+// graphics interrupt, translates shaders, emulates EDRAM and resolves, and presents the frames. The
+// kernel keeps the Vd* video exports and reaches ReGPU through regpu::driver (driver.h). In Re360 the
+// host is the rexgpu-regpu plugin (src/regpu/plugin), selected with gpu_plugin=regpu.
 #include <cstdint>
 #include <filesystem>
 #include <string>
 #include <vector>
 
-struct PPCContext; // XenonRecomp (ppc_context.h)
+struct PPCContext; // include/rex/ppc/context.h
 
 namespace regpu
 {
@@ -147,7 +148,7 @@ Host& GetHost();
 // Opens the window and the D3D12 device, and starts the command processor. Call once, after filling
 // in Config and Host, before the game calls VdInitializeRingBuffer.
 void Start();
-// The debug server's controller (REGPU_DEBUG=1; tools/regpuctl.py press/hold/stick/trigger): the game
+// The debug server's controller (REGPU_DEBUG=1; tools/regpu/regpuctl.py press/hold/stick/trigger): the game
 // merges it into player 1's pad where it reads XInput (XInputGetState / XamInputGetState). False when
 // nothing is held. Buttons use the XInput bits.
 struct DebugPad

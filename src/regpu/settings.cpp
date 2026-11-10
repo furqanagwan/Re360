@@ -29,7 +29,7 @@ Host& GetHost()
 void Start()
 {
     g_base = GetHost().base;
-    DebugServerStart(); // REGPU_DEBUG=1: tools/regpuctl.py drives the running game
+    DebugServerStart(); // REGPU_DEBUG=1: tools/regpu/regpuctl.py drives the running game
     PresenterInit();
     GpuInit();
 }

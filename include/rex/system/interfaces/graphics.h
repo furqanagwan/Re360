@@ -44,6 +44,9 @@ class IGraphicsSystem {
   virtual ui::GraphicsProvider* provider() const { return nullptr; }
   virtual ui::Presenter* presenter() const { return nullptr; }
 
+  virtual void SetHostWindow(void* native_window_handle) { (void)native_window_handle; }
+  virtual void FlushCaches() {}
+
   virtual void SetInterruptCallback(uint32_t callback, uint32_t user_data) {
     (void)callback;
     (void)user_data;

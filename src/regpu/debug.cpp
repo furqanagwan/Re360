@@ -1,5 +1,5 @@
 // The live debug server: one client at a time on 127.0.0.1, a line per command, a line of JSON back.
-// See tools/regpuctl.py for the commands. Input is merged into player 1's pad, screenshots are taken by the
+// See tools/regpu/regpuctl.py for the commands. Input is merged into player 1's pad, screenshots are taken by the
 // renderer at its next swap, and the waits block this thread only.
 #include "debug.h"
 
@@ -583,7 +583,7 @@ void DebugServerStart()
             Log("debug: can't listen on 127.0.0.1:%d", port);
             return;
         }
-        Log("debug: listening on 127.0.0.1:%d (tools/regpuctl.py)", port);
+        Log("debug: listening on 127.0.0.1:%d (tools/regpu/regpuctl.py)", port);
         for (;;)
         {
             SOCKET client = accept(listener, nullptr, nullptr);

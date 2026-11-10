@@ -15,20 +15,15 @@ constexpr uint32_t FetchConstants = 0x4800;
 constexpr uint32_t BoolConstants = 0x4900;
 constexpr uint32_t LoopConstants = 0x4908;
 
-// The live register file, big-endian. XenonRecomp ports have no MMIO, so the guest reads and
-// writes it as plain memory at kBase. Under ReXGlue that range is MMIO (regpu::driver::Read/
-// WriteRegister), so the file lives in host memory. 0x8000 registers: type-0 packets address
-// up to 0x7FFF.
+// The live register file, big-endian. The guest's 0x7FC80000 range is MMIO (the plugin routes it
+// to regpu::driver::Read/WriteRegister), so the file lives in host memory. 0x8000 registers:
+// type-0 packets address up to 0x7FFF.
 constexpr uint32_t kFileBytes = 0x8000 * 4;
-#if REGPU_GUEST_EXPORTS
-inline uint8_t* LiveFile() { return GuestPtr<uint8_t>(kBase); }
-#else
 inline uint8_t* LiveFile()
 {
     alignas(64) static uint8_t file[kFileBytes];
     return file;
 }
-#endif
 
 // The register file this thread reads: the live one (written by the command processor), or
 // the draw worker's own copy, which follows the command processor's writes in order.
@@ -56,7 +51,7 @@ inline uint32_t GpuPhysToGuest(uint32_t phys) { return 0xA0000000 + (phys & 0x1F
 // (RendererPredictShader / RendererPredictDraw). Command processor thread only.
 void GpuLookahead();
 
-// Frame capture (src/gpu/frame.cpp), called on the command processor thread.
+// Frame capture (src/regpu/gpu/frame.cpp), called on the command processor thread.
 enum class ShaderType
 {
     Vertex = 0,
