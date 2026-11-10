@@ -1,7 +1,7 @@
 # Xenos notes
 
 What ReGPU's renderer had to get right, learned while rendering a full retail game (Forza Motorsport 2)
-and checked against Xenia and a real console. Read this before changing `src/gpu/`.
+and checked against Xenia and a real console. Read this before changing `src/regpu/gpu/`.
 
 ## The frame
 

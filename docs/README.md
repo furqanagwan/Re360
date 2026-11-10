@@ -13,6 +13,8 @@ The [48-deliverable index](deliverables.md) maps every requested output to its a
 | [Upstream tracking](upstream-tracking.md) | Significant compatibility fix provenance, regressions, adaptations and roadmap mapping |
 | [Regression strategy](regression-strategy.md) | Current baseline, representative workloads, vendor matrix and regression index |
 | [Roadmap](roadmap.md) | Sequential issue index, dependencies, labels, readiness and first implementation |
+| [Native GPU plan](native-gpu-plan.md) | Ahead-of-time shaders, the lean renderer and per-game native renderers, in phases |
+| [ReGPU](regpu.md) | The `regpu` GPU plugin: use, wiring, limits, credits; [debugging](regpu-debugging.md) |
 | [ADRs](adr/README.md) | Six accepted architecture/policy decisions, with implementation still staged |
 | [Source snapshot](upstream-snapshot.json) | Machine-readable upstream status, source paths and mappings |
 

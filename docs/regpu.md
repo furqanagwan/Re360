@@ -1,108 +1,107 @@
-# ReGPU
-<img width="2100" height="1500" alt="reGPU society" src="https://github.com/user-attachments/assets/5554e4b0-5b9f-4e8d-9839-314dc3e4eb7f" />
+# ReGPU: the `regpu` GPU plugin
 
-The Xbox 360 GPU (Xenos), on Direct3D 12, for native PC ports of Xbox 360 games made with
-[XenonRecomp](https://github.com/hedge-dev/XenonRecomp).
+ReGPU is Re360's second Xenos renderer. It reads the same PM4 command stream as
+the default `xenos` plugin but keeps render targets as host textures, turns
+resolves into copies, and translates shader microcode to readable HLSL. It can
+upscale (FSR 1 built in; FSR 3 and DLSS as build options).
 
-ReGPU takes the GPU's half of a port off your hands. The recompiled game talks to it exactly as it
-talked to the console: it writes command packets into a ring buffer and calls the kernel's `Vd*` video
-functions. ReGPU runs the command processor, translates the Xenos shader microcode to HLSL, emulates
-EDRAM, resolves, MSAA and the texture formats, presents the frames, and can upscale them (FSR 1,
-optionally FSR 3 and DLSS).
+It builds, loads through the plugin interface and runs a command stream on a
+real Direct3D 12 device (`gpu.regpu_plugin_smoke`). **It has not been run on a
+game inside Re360 yet.** Before this merge it rendered Forza Motorsport 2
+end to end as a XenonRecomp port; getting the three 007 titles to gameplay on
+it is the next gate in the [native GPU plan](native-gpu-plan.md).
 
-It came out of a working port, Forza Motorsport 2, where it renders the whole game. Everything
-specific to that game has been removed; what remains is the console's behaviour, plus hooks for the
-workarounds a particular game needs.
+## Use it
 
-## Requirements
+A project made with `rexglue init` stages both plugins. Pick ReGPU per run:
 
-- **XenonRecomp.** ReGPU is for XenonRecomp ports and builds against it: it uses XenonRecomp's
-  `PPCContext` and calling convention to provide the console's `__imp__Vd*` video exports and to call
-  the game's graphics interrupt. Your recompiled game links them like any other import. (Ports made
-  some other way are not supported.)
-- Windows 10/11, a Direct3D 12 GPU (feature level 12_0), clang-cl (as XenonRecomp's output needs),
-  CMake 3.25+, Ninja, Python 3 (a build step embeds compiled shaders).
-- The AMD FidelityFX SDK (MIT) for the FSR 1 shader headers. FSR 3 needs its signed runtime DLLs and
-  DLSS needs NVIDIA's DLSS SDK; both are off by default.
-
-## Building
-
-ReGPU is a static library your port links. In your port's CMake:
-
-```cmake
-set(REGPU_XENONRECOMP "${CMAKE_SOURCE_DIR}/thirdparty/XenonRecomp")   # XenonRecomp checkout
-set(REGPU_PPC_DIR     "${CMAKE_SOURCE_DIR}/out/ppc")                  # your game's XenonRecomp output (ppc_config.h)
-set(REGPU_FFX         "${CMAKE_SOURCE_DIR}/thirdparty/fidelityfx/Kits/FidelityFX")
-add_subdirectory(thirdparty/ReGPU)
-target_link_libraries(game PRIVATE regpu)
+```powershell
+MyGame.exe --gpu_plugin=regpu
 ```
 
-Options: `REGPU_FSR3` (with the FidelityFX signed DLLs), `REGPU_DLSS` and `REGPU_DLSS_DIR`.
+An existing project adds `regpu` to its `GPU_PLUGINS` list
+(`rexglue_setup_target(MyGame GPU_PLUGINS xenos regpu)`) and rebuilds.
 
-Ship Microsoft's `d3dcompiler_47.dll` (the Windows SDK's `Redist\D3D\x64`, redistributable) beside
-your executable: ReGPU loads it from there first. Under Wine/Proton the system copy is Wine's own,
-which can't compile the translated shaders.
+ReGPU writes its shader and pipeline caches under the title's cache folder, in
+`regpu`. Its log is `regpu.log` in the working folder (`REGPU_LOG_DIR` moves it).
+The first run of a game compiles its shaders and can take minutes; later runs
+load them from the cache.
 
-To check that ReGPU builds on its own: `cmake --build build --target regpu_linkcheck`.
+## How it is wired
 
-## Hooking it up
+| Piece | Where | What it does |
+| --- | --- | --- |
+| The renderer | `src/regpu/gpu`, `src/regpu/render` | Command processor, microcode to HLSL, EDRAM surfaces, resolves, textures, presentation |
+| Its API | `include/regpu/regpu.h`, `include/regpu/driver.h` | `Config`, `Host` and the entry points the kernel's `Vd*` exports reach |
+| The plugin | `src/regpu/plugin/graphics_system.cpp` | Implements `IGraphicsSystem` (`include/rex/system/interfaces/graphics.h`) on top of that API |
 
-Everything is in [`include/regpu/regpu.h`](include/regpu/regpu.h). Before the game initialises
-its graphics:
+The plugin gives ReGPU what it asks of a host: guest memory, guest allocations,
+threads that can run guest code, and the graphics interrupt through the
+function dispatcher. It routes the guest's GPU register range (`0x7FC80000`) to
+ReGPU's register file, and presents into the game window the runtime already
+owns. The kernel's video exports (`src/kernel/xboxkrnl/xboxkrnl_video.cpp`) are
+shared by both plugins; ReGPU's own copies were removed in the merge.
 
-```cpp
-#include <regpu/regpu.h>
+## What it does not do yet
 
-regpu::Config& config = regpu::GetConfig();
-config.width = 1920; config.height = 1080;
-config.msaa = 4;
-config.userDir = savesFolder / "regpu";      // shader and pipeline caches
-config.windowTitle = L"My Game";
+- **Guide and overlays.** ReGPU presents with its own swap chain, so the Xbox
+  Guide, achievement toasts and the debug overlays, which draw through the
+  runtime's presenter, do not appear with `gpu_plugin=regpu`.
+- **Runtime settings.** `vsync`, `resolution_scale` and the other GPU cvars
+  belong to the `xenos` plugin. ReGPU starts at the game window's size with
+  vsync on and a 60 fps cap, and takes its switches from `REGPU_*` environment
+  variables.
+- **1280x720 guests only.** The renderer assumes the game draws at 1280x720
+  (see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
+- **No tessellation; memexport writes are dropped.**
+- **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`), not
+  at build time.
+- **One renderer per process, and no teardown.** Its threads run until the
+  process exits, which is how titles exit today.
+- **Its own support code.** ReGPU still carries its own logger, PNG writer,
+  live switches and D3D12 device setup instead of the runtime's. They are
+  small, and replacing them is safe only once a game runs on it here.
+- **The debug server's controller** (`regpuctl.py press`) is not merged into
+  the runtime's input yet.
 
-regpu::Host& host = regpu::GetHost();
-host.base = guestMemoryBase;                 // the guest's 4 GB address space
-host.alloc = [](bool physical, uint32_t size, uint32_t align) { return MyGuestAlloc(physical, size, align); };
-host.createThread = [](const char* name, void (*body)(PPCContext&)) { MyCreateHostGuestThread(name, body); };
-host.currentPcr = [] { return MyCurrentThread().pcr; };
-host.guestCall = [](PPCContext& ctx, uint32_t address) { MyGuestCall(ctx, address); };
-host.interruptLockAcquire = [](int cpu) { MyInterruptLock(cpu); };
-host.interruptLockRelease = [] { MyInterruptUnlock(); };
+## Game-specific fixes
 
-regpu::Start();   // window, device, command processor
-```
-
-Your runtime already has these: they are the pieces any XenonRecomp port builds for its own threads
-and memory. ReGPU never touches the rest of the kernel (files, threads, XAM, audio), which stays yours.
-
-The renderer currently assumes the game draws at 1280x720, as most Xbox 360 games do (see
-[`docs/xenos-notes.md`](docs/xenos-notes.md)).
-
-### Game-specific fixes
-
-When a game needs something the console did that isn't the GPU's job, or a workaround for one of
-its shaders, use the optional hooks instead of changing ReGPU:
+ReGPU stays game-neutral. A workaround for one game goes through the optional
+hooks in `include/regpu/regpu.h`, not into the renderer:
 
 | Hook | For |
-|---|---|
+| --- | --- |
 | `rewriteShader` | Edit a shader's translated HLSL before it compiles, and tag it |
 | `onDraw` | Set four `float4` constants (`vuser`) for draws with tagged shaders |
-| `resolveWriteback` | Copy a resolved image back to memory because the game reads it on the CPU (screenshots, thumbnails, focus readback) |
-| `staticShaders`, `bootScreen` | Compile every shader in the game's files on first boot, with your own progress screen |
-| `onChar`, `onSwap` | Typed text (cheat codes), a callback per frame |
-| `logThreadStacks`, `currentStack`, `slowFrame`, `cpuUsage` | Diagnostics |
-| `SetGameWidescreen(true)` | The game itself draws wider than 16:9, so ReGPU leaves the field of view alone |
+| `resolveWriteback` | Copy a resolved image back to memory because the game reads it on the CPU |
+| `staticShaders`, `bootScreen` | Compile every shader in the game's files on first boot, with a progress screen |
+| `onChar`, `onSwap` | Typed text, a callback per frame |
+
+The plugin does not expose these to title projects yet; that belongs with the
+title-profile work (ADR-009).
+
+## Build options
+
+| Option | Effect |
+| --- | --- |
+| `REGPU_FSR3` | AMD FSR 3. Needs `REGPU_FFX` set to the FidelityFX SDK's `Kits/FidelityFX` folder with its signed DLLs |
+| `REGPU_DLSS` | NVIDIA DLSS. Needs `REGPU_DLSS_DIR` set to the DLSS SDK |
+| `REGPU_FFX` | Also adds the `regpu-fsr1-bytecode` target, which rebuilds `src/regpu/gpu/bytecode/fsr1_cs.h` from `src/regpu/gpu/fsr1.hlsl` |
+
+The default build needs none of them: the FSR 1, gamma and depth-copy compute
+shaders are checked in as bytecode (built from FidelityFX SDK v2.1.0 headers
+with the Windows SDK's FXC).
 
 ## Debugging
 
-Start the game with `REGPU_DEBUG=1` and drive it from outside with
-[`tools/regpuctl.py`](tools/regpuctl.py): press buttons, take screenshots, capture a frame, edit
-shaders live, flip `REGPU_*` switches. [`CLAUDE.md`](CLAUDE.md) is the playbook.
-[`tools/xbdm.py`](tools/xbdm.py) and [`tools/xbox_fb.py`](tools/xbox_fb.py) take reference
-screenshots and memory reads from a real (modded) console over XBDM.
+Start the game with `REGPU_DEBUG=1` and drive it with
+`tools/regpu/regpuctl.py`: screenshots, frame captures, live shader edits and
+`REGPU_*` switches. The method is in [ReGPU debugging](regpu-debugging.md).
 
 ## Credits and licences
 
-- [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) (MIT), which ReGPU builds against.
+- [ReGPU](https://github.com/zer0ducksgiven/ReGPU) by Scott (MIT): the renderer itself, written for
+  [XenonRecomp](https://github.com/hedge-dev/XenonRecomp) ports and proven on Forza Motorsport 2.
 - [Xenia](https://github.com/xenia-project/xenia) (BSD 3-Clause)'s research into the Xenos GPU informed this
   renderer. A few routines follow Xenia's closely: the PWL gamma conversion (`renderer.cpp`), the texture
   tiling and packed-mip offsets (`texture.cpp`). For those:
@@ -130,4 +129,4 @@ screenshots and memory reads from a real (modded) console over XBDM.
 - AMD FidelityFX SDK (MIT); NVIDIA DLSS SDK (its own licence, only with `REGPU_DLSS`); Microsoft's
   `d3dcompiler_47.dll` (Windows SDK redistributable).
 
-ReGPU is released under the [MIT licence](LICENSE).
+ReGPU is released under the [MIT licence](../src/regpu/LICENSE).

@@ -1,8 +1,9 @@
 # Contributing
 
-For this fork, read [AGENTS.md](AGENTS.md), the
-[modernization roadmap](docs/roadmap.md), and your assigned issue first.
-Implementation and issues belong in `furqanagwan/rexglue-sdk`; upstream projects
+Read [AGENTS.md](AGENTS.md), the [modernization roadmap](docs/roadmap.md), the
+[native GPU plan](docs/native-gpu-plan.md) and your assigned issue first.
+Implementation and new issues belong in `furqanagwan/Re360`; issue numbers in
+older commits and documents refer to `furqanagwan/rexglue-sdk`. Upstream projects
 are read-only references for this work. The Windows/GDK/D3D12 destination and
 regression gates in the [ADRs](docs/adr/README.md) take precedence over inherited
 cross-platform guidance. Preserve author/license provenance for selective ports.

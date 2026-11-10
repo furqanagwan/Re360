@@ -8,6 +8,8 @@
 /src/system/ @furqanagwan
 /src/kernel/ @furqanagwan
 /src/graphics/ @furqanagwan
+/src/regpu/ @furqanagwan
+/include/regpu/ @furqanagwan
 /src/ui/ @furqanagwan
 /cmake/ @furqanagwan
 /.github/ @furqanagwan

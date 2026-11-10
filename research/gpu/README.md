@@ -12,6 +12,7 @@ Topics:
 - [Xenos MSAA sample positions](xenos-sample-positions.md)
 - [Shader operand components](shader-operand-components.md)
 - [Wide 1D textures](wide-1d-textures.md)
+- [What ReGPU's renderer had to get right](regpu-xenos-notes.md) (`src/regpu/gpu`)
 
 Existing records still in `docs/`:
 
