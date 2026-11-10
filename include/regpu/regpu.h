@@ -19,6 +19,8 @@ struct Config
 {
     uint32_t width = 1280, height = 720; // output resolution
     uint32_t aspectW = 0, aspectH = 0;   // forced aspect ratio (0 = from the resolution)
+    // The size the title renders its frame at, until its first swap reports the front buffer's own.
+    uint32_t guestWidth = 1280, guestHeight = 720;
     bool fullscreen = false;             // borderless fullscreen on the primary display
     bool vsync = true;
     uint32_t maxFps = 60;                // frame cap

@@ -63,7 +63,10 @@ std::atomic<bool> g_gameWidescreen{ false }; // regpu::SetGameWidescreen
 
 namespace
 {
-constexpr UINT kWidth = 1280, kHeight = 720;
+// The guest's frame: the size of the front buffer the title presents (1280x720 for most; some
+// render 1024x600 or 1152x640 and leave the rest to the console's scaler). Config's guestWidth and
+// guestHeight at start; then whatever VdSwap reports (RendererSetGuestSize, ApplyGuestSize).
+UINT kWidth = 1280, kHeight = 720;
 // Output size (RenderSize: REGPU_RESOLUTION or REGPU_RENDER_SCALE). Everything else
 // (registers, scissors, resolve and clear rectangles, shader constants) stays in the game's
 // own pixels; only the D3D calls scale. Vertically that is output height / 720. A pass at
@@ -685,6 +688,7 @@ D3D12_GPU_DESCRIPTOR_HANDLE SamplerTable()
 
 std::atomic<uint64_t> g_outputRequest{ 0 }; // regpu::SetOutputSize: width << 32 | height, 0 none (ApplyOutputSize)
 std::atomic<uint32_t> g_msaaRequest{ 0 };   // regpu::SetMsaa: samples, 0 none (ApplyMsaa)
+std::atomic<uint64_t> g_guestRequest{ 0 };  // RendererSetGuestSize: width << 32 | height, 0 none (ApplyGuestSize)
 std::atomic<uint32_t> g_pipelineGen{ 0 };   // bumped when every pipeline is replaced (ApplyMsaa): GetPipeline's caches start over
 }
 
@@ -696,6 +700,18 @@ void regpu::SetMsaa(uint32_t samples)
 void regpu::SetAnisotropy(int maxAnisotropy)
 {
     g_anisoRequest.store(maxAnisotropy, std::memory_order_relaxed);
+}
+
+// XE_SWAP's front buffer size, on the command processor's thread. The console scales whatever front
+// buffer a title presents to the display, so its size is the title's frame. Sizes no title's front
+// buffer has (under 640x480, over 1920x1080) are ignored. REGPU_NO_GUEST_SIZE_FOLLOW=1: stay at
+// Config's size.
+void RendererSetGuestSize(uint32_t width, uint32_t height)
+{
+    static LiveSwitch noFollow("REGPU_NO_GUEST_SIZE_FOLLOW");
+    if (noFollow || width < 640 || height < 480 || width > 1920 || height > 1080)
+        return;
+    g_guestRequest.store(uint64_t(width) << 32 | height, std::memory_order_relaxed);
 }
 
 void regpu::SetOutputSize(uint32_t width, uint32_t height)
@@ -2071,6 +2087,8 @@ void Init()
     Check(d->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&g_r.fence)), "CreateFence");
     g_r.fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
     PresenterUseRenderer();
+    if (const Settings& st = GetSettings(); st.guestWidth >= 640 && st.guestHeight >= 480 && st.guestWidth <= 1920 && st.guestHeight <= 1080)
+        kWidth = st.guestWidth, kHeight = st.guestHeight;
     g_r.ok = true;
     Log("renderer: D3D12 renderer ready");
 }
@@ -2134,6 +2152,30 @@ void ApplyOutputSize()
     g_upscale.reset = true;
     PresenterResize(OutputWidth(), OutputHeight());
     Log("renderer: output %ux%u (live)", OutputWidth(), OutputHeight());
+}
+
+// A new guest frame size (RendererSetGuestSize), taken at the start of a frame with the host GPU idle.
+// The EDRAM surfaces are sized from it (output rows per guest row), so they are dropped and come back,
+// as the upscaler's images do. The frame that reported the size was drawn at the old scale: the
+// title's first frame is shown wrong, the rest right.
+void ApplyGuestSize()
+{
+    const uint64_t request = g_guestRequest.exchange(0);
+    if (!request || !g_r.ok)
+        return;
+    const uint32_t w = uint32_t(request >> 32), h = uint32_t(request);
+    if (w == kWidth && h == kHeight)
+        return;
+    WaitGpuIdle();
+    kWidth = w;
+    kHeight = h;
+    DropSurfaces();
+    g_upscale.depth.Reset();
+    g_upscale.motion.Reset();
+    g_upscale.dlaaOut.Reset();
+    g_upscale.renderWidth = g_upscale.renderHeight = 0;
+    g_upscale.reset = true;
+    Log("renderer: the title's frame is %ux%u", kWidth, kHeight);
 }
 
 // A new anti-aliasing sample count (regpu::SetMsaa), taken at the start of a frame with the host GPU idle:
@@ -2524,6 +2566,7 @@ void BeginFrameIfNeeded()
     }
     f.garbage.clear();
     ApplyOutputSize(); // (a new resolution: between frames)
+    ApplyGuestSize();
     ApplyMsaa();
     void FinishDeferredWritebacks(UINT frameIndex);
     FinishDeferredWritebacks(UINT(&f - g_r.frames)); // this slot's previous frame has completed

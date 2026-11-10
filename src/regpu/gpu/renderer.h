@@ -8,6 +8,8 @@ void RendererSetShader(uint32_t type, const uint32_t* microcodeBE, uint32_t used
 void RendererOnDraw(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize);
 // frontBuffer: physical address of the resolved image to show.
 void RendererOnSwap(uint64_t frame, uint32_t frontBuffer);
+// The size of the front buffer a swap presents: the title's frame size from then on.
+void RendererSetGuestSize(uint32_t width, uint32_t height);
 // Lookahead hooks (see GpuLookahead): shader loads and draws the command processor has
 // not executed yet, seen on a shadow copy of the registers.
 void RendererPredictBegin();

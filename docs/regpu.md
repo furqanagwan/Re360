@@ -11,7 +11,8 @@ What is proven here, on a real Direct3D 12 device through the plugin interface:
   range, and draws shaded from Xenos microcode (translated to HLSL, compiled,
   drawn at 1x and 4x MSAA) resolved to guest memory with the exact colours.
 - `gpu.regpu_present`: a 1280x720 frame swapped into a window the host owns,
-  read back from the presented picture with the colour it drew.
+  read back from the presented picture with the colour it drew. The same at
+  1024x600 and 1152x640, the sizes some titles render at.
 
 **It has not been run on a game inside Re360 yet.** Before this merge it
 rendered Forza Motorsport 2 end to end as a XenonRecomp port; getting the three
@@ -61,8 +62,10 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   belong to the `xenos` plugin. ReGPU starts at the game window's size with
   vsync on and a 60 fps cap, and takes its switches from `REGPU_*` environment
   variables.
-- **1280x720 guests only.** The renderer assumes the game draws at 1280x720
-  (see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
+- **Frame size.** The renderer starts at 1280x720 and follows the front buffer
+  size the title's first swap reports, so a title that renders 1024x600 shows
+  its first frame wrong and the rest right. Front buffers above 1280x720 are
+  untested (see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
 - **No tessellation; memexport writes are dropped.**
 - **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`), not
   at build time.

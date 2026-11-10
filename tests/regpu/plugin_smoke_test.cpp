@@ -41,8 +41,8 @@ constexpr uint32_t kGpuRegisterBase = 0x7FC80000;
 constexpr uint32_t kCpRbWptr = 0x01C5;
 constexpr uint32_t kEdramTiming = 0x0F00;
 constexpr uint32_t kSize = 32;
-constexpr uint32_t kFrameWidth = 1280;
-constexpr uint32_t kFrameHeight = 720;
+uint32_t frame_width = 1280;
+uint32_t frame_height = 720;
 constexpr uint32_t kShotWidth = 640;
 constexpr uint32_t kShotHeight = 360;
 constexpr uint16_t kDebugPort = 7349;
@@ -172,13 +172,13 @@ std::string AskDebugServer(const std::string& command) {
 }
 
 void SubmitFrame(GpuFixture& fixture, uint32_t front_buffer, uint32_t color) {
-  const Surface surface{xenos::MsaaSamples::k1X, kFrameWidth};
-  SetupDraw(fixture, surface, kFrameWidth, kFrameHeight);
-  DrawRect(fixture, 0, 0, kFrameWidth, kFrameHeight, color);
-  Resolve(fixture, surface, kFrameWidth, kFrameHeight, xenos::CopySampleSelect::k0, front_buffer,
-          kFrameWidth, 0, {}, kFrameHeight);
+  const Surface surface{xenos::MsaaSamples::k1X, frame_width};
+  SetupDraw(fixture, surface, frame_width, frame_height);
+  DrawRect(fixture, 0, 0, frame_width, frame_height, color);
+  Resolve(fixture, surface, frame_width, frame_height, xenos::CopySampleSelect::k0, front_buffer,
+          frame_width, 0, {}, frame_height);
   fixture.Submit({xenos::MakePacketType3(xenos::PM4_XE_SWAP, 4), xenos::kSwapSignature,
-                  front_buffer, kFrameWidth, kFrameHeight});
+                  front_buffer, frame_width, frame_height});
   fixture.Flush(std::chrono::seconds(60));
 }
 
@@ -193,7 +193,7 @@ int PresentIntoTitleWindow() {
     std::printf("skipped: %s\n", error.c_str());
     return kSkipped;
   }
-  uint32_t front_buffer = fixture->AllocPhysical(kFrameWidth * kFrameHeight * 4);
+  uint32_t front_buffer = fixture->AllocPhysical(frame_width * frame_height * 4);
   constexpr uint32_t kColor = 0xFF2060C0;
   SubmitFrame(*fixture, front_buffer, kColor);
 
@@ -225,10 +225,16 @@ int PresentIntoTitleWindow() {
   std::error_code ignored;
   std::filesystem::remove(shot, ignored);
   const uint8_t* centre = &pixels[((kShotHeight / 2) * kShotWidth + kShotWidth / 2) * 4];
-  std::printf("presented centre pixel: R %u G %u B %u (the frame drew R 192 G 96 B 32)\n",
-              centre[0], centre[1], centre[2]);
-  Check(read && centre[0] > centre[1] && centre[1] > centre[2] && centre[2] > 0,
-        "the presented picture is the colour the frame drew");
+  const uint8_t* corner = &pixels[((kShotHeight - 8) * kShotWidth + kShotWidth - 8) * 4];
+  std::printf(
+      "%ux%u frame presented: centre R %u G %u B %u, bottom right R %u G %u B %u "
+      "(the frame drew R 192 G 96 B 32)\n",
+      frame_width, frame_height, centre[0], centre[1], centre[2], corner[0], corner[1], corner[2]);
+  auto drawn = [](const uint8_t* pixel) {
+    return pixel[0] == 192 && pixel[1] == 96 && pixel[2] == 32;
+  };
+  Check(read && drawn(centre), "the presented picture is the colour the frame drew");
+  Check(read && drawn(corner), "the frame fills the picture to its bottom right corner");
   Finish("present");
 }
 
@@ -236,6 +242,10 @@ int PresentIntoTitleWindow() {
 
 int main(int argc, char** argv) {
   if (argc > 1 && std::string(argv[1]) == "--present") {
+    if (argc > 3) {
+      frame_width = uint32_t(std::atoi(argv[2]));
+      frame_height = uint32_t(std::atoi(argv[3]));
+    }
     return PresentIntoTitleWindow();
   }
   return DrawWithoutWindow();

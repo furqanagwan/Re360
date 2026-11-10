@@ -26,8 +26,13 @@ and checked against Xenia and a real console. Read this before changing `src/reg
 - **Taller and wider than the screen.** Targets of 1024x1024 or 2048-wide composites are drawn as passes
   of up to 720 rows, or in strips. They're scaled as a whole pass, and their resolves keep all their rows
   (clamping to 720 stretched them 1.4x when sampled).
-- **1280x720.** ReGPU assumes the title renders at 1280x720 (`kWidth`/`kHeight` in `renderer.cpp`). Most
-  360 games do; some use 1024x600 or 1152x640 and will need this made a setting.
+- **The frame size is the front buffer's.** Most 360 games render 1280x720; some use 1024x600 or
+  1152x640 and let the console's scaler fill the display. `VdSwap` names the front buffer's width and
+  height, and the kernel passes them on in its swap packet, so ReGPU takes its frame size
+  (`kWidth`/`kHeight` in `renderer.cpp`) from there: `Config::guestWidth`/`guestHeight` until the first
+  swap, then the swap's (`ApplyGuestSize`; `REGPU_NO_GUEST_SIZE_FOLLOW=1` keeps Config's). Before this
+  a 1024x600 front buffer was never presented: only a resolve of exactly 1280x720 counted as the frame.
+  Checked with constant-colour frames at 1024x600 and 1152x640 (`tests/regpu`), not yet with a title.
 - **Formats.** `8_8_8_8` stays 8-bit (clamped, like the hardware); other colour formats keep their HDR
   range. The 360's `7_7_7_3` (7e3) is approximated with half floats, clamped to its 31.875 ceiling.
   Depth copies are D24FS8: 20e4 float depth in the top 24 bits of each word.

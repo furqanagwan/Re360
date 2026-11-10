@@ -24,7 +24,11 @@ add_custom_command(TARGET regpu_tests POST_BUILD
 
 add_test(NAME gpu.regpu_plugin_smoke COMMAND regpu_tests)
 add_test(NAME gpu.regpu_present COMMAND regpu_tests --present)
-set_tests_properties(gpu.regpu_plugin_smoke gpu.regpu_present PROPERTIES
+# Titles whose front buffer is smaller than 1280x720: the frame size follows VdSwap's.
+add_test(NAME gpu.regpu_present_1024x600 COMMAND regpu_tests --present 1024 600)
+add_test(NAME gpu.regpu_present_1152x640 COMMAND regpu_tests --present 1152 640)
+set_tests_properties(gpu.regpu_plugin_smoke gpu.regpu_present
+    gpu.regpu_present_1024x600 gpu.regpu_present_1152x640 PROPERTIES
     LABELS "gpu;regpu"
     TIMEOUT 120
     SKIP_RETURN_CODE 4
