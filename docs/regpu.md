@@ -5,11 +5,18 @@ the default `xenos` plugin but keeps render targets as host textures, turns
 resolves into copies, and translates shader microcode to readable HLSL. It can
 upscale (FSR 1 built in; FSR 3 and DLSS as build options).
 
-It builds, loads through the plugin interface and runs a command stream on a
-real Direct3D 12 device (`gpu.regpu_plugin_smoke`). **It has not been run on a
-game inside Re360 yet.** Before this merge it rendered Forza Motorsport 2
-end to end as a XenonRecomp port; getting the three 007 titles to gameplay on
-it is the next gate in the [native GPU plan](native-gpu-plan.md).
+What is proven here, on a real Direct3D 12 device through the plugin interface:
+
+- `gpu.regpu_plugin_smoke`: a PM4 command stream, guest threads, the register
+  range, and draws shaded from Xenos microcode (translated to HLSL, compiled,
+  drawn at 1x and 4x MSAA) resolved to guest memory with the exact colours.
+- `gpu.regpu_present`: a 1280x720 frame swapped into a window the host owns,
+  read back from the presented picture with the colour it drew.
+
+**It has not been run on a game inside Re360 yet.** Before this merge it
+rendered Forza Motorsport 2 end to end as a XenonRecomp port; getting the three
+007 titles to gameplay on it is the next gate in the
+[native GPU plan](native-gpu-plan.md).
 
 ## Use it
 
@@ -57,7 +64,8 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
 - **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`), not
   at build time.
 - **One renderer per process, and no teardown.** Its threads run until the
-  process exits, which is how titles exit today.
+  process exits, which is how titles exit today. Because the swap chain is
+  still alive then, DXGI ends the process with exit code `0x87A` instead of 0.
 - **Its own support code.** ReGPU still carries its own logger, PNG writer,
   live switches and D3D12 device setup instead of the runtime's. They are
   small, and replacing them is safe only once a game runs on it here.

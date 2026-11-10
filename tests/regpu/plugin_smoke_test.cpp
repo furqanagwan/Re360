@@ -1,149 +1,242 @@
 /**
  * @file        regpu/plugin_smoke_test.cpp
- * @brief       rexgpu-regpu runs a command stream through the plugin interface
+ * @brief       rexgpu-regpu runs a command stream, shaded draws and a present through the plugin
  *
  * @license     BSD 3-Clause License
  *              See LICENSE file in the project root for full license text.
  */
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cstring>
 #include <filesystem>
-#include <functional>
-#include <memory>
+#include <future>
+#include <string>
 #include <thread>
 #include <vector>
+
+#include <winsock2.h>
+
+#include <windows.h>
 
 #include <fmt/format.h>
 
 #include <rex/graphics/xenos.h>
 #include <rex/logging.h>
-#include <rex/memory/utils.h>
-#include <rex/runtime.h>
-#include <rex/system/gpu_plugin.h>
 #include <rex/system/interfaces/graphics.h>
 #include <rex/system/mmio_handler.h>
-#include <rex/system/xmemory.h>
 
-#include <windows.h>
+#include "gpu_fixture.h"
+#include "guest_draw.h"
 
 namespace {
 
 namespace xenos = rex::graphics::xenos;
+using rex::testing::GpuFixture;
+using namespace rex::testing::guest_draw;  // NOLINT
 
 constexpr uint32_t kGpuRegisterBase = 0x7FC80000;
 constexpr uint32_t kCpRbWptr = 0x01C5;
 constexpr uint32_t kEdramTiming = 0x0F00;
-constexpr uint32_t kRingSizeLog2 = 13;
-constexpr uint32_t kRingDwords = (uint32_t(1) << (kRingSizeLog2 + 3)) / 4;
+constexpr uint32_t kSize = 32;
+constexpr uint32_t kFrameWidth = 1280;
+constexpr uint32_t kFrameHeight = 720;
+constexpr uint32_t kShotWidth = 640;
+constexpr uint32_t kShotHeight = 360;
+constexpr uint16_t kDebugPort = 7349;
 constexpr int kSkipped = 4;
 
 int failures = 0;
 
-void Check(bool passed, const char* what) {
-  std::printf("%s: %s\n", passed ? "ok" : "FAILED", what);
+void Check(bool passed, const std::string& what) {
+  std::printf("%s: %s\n", passed ? "ok" : "FAILED", what.c_str());
   std::fflush(stdout);
   if (!passed) {
     ++failures;
   }
 }
 
-bool WaitFor(const std::function<bool()>& condition) {
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
-  while (!condition()) {
-    if (std::chrono::steady_clock::now() > deadline) {
-      return false;
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-  }
-  return true;
+[[noreturn]] void Finish(const char* name) {
+  std::printf("regpu %s test %s\n", name, failures ? "FAILED" : "passed");
+  std::fflush(stdout);
+  TerminateProcess(GetCurrentProcess(), failures ? 1 : 0);
+  std::_Exit(failures ? 1 : 0);
 }
 
+void CheckDraw(GpuFixture& fixture, const Surface& surface, uint32_t color, const char* what) {
+  uint32_t dest = fixture.AllocPhysical(kSize * kSize * 4);
+  SetupDraw(fixture, surface, kSize, kSize);
+  DrawRect(fixture, 0, 0, kSize, kSize, color);
+  Resolve(fixture, surface, kSize, kSize, xenos::CopySampleSelect::k0, dest);
+  bool flushed = fixture.Flush(std::chrono::seconds(60));
+  uint32_t centre = ReadTexel(fixture, dest, kSize / 2, kSize / 2);
+  uint32_t corner = ReadTexel(fixture, dest, 1, 1);
+  std::printf("%s: centre %08X corner %08X, expected %08X\n", what, centre, corner, color);
+  Check(flushed && centre == color && corner == color, what);
 }
 
-int main() {
+int DrawWithoutWindow() {
   _putenv_s("REGPU_HEADLESS", "1");
-  rex::InitLogging(nullptr);
+  _putenv_s("REGPU_RESOLVE_WRITEBACK", "32x32");
 
-  std::error_code ignored;
-  std::filesystem::path root = std::filesystem::temp_directory_path(ignored) /
-                               fmt::format("re360_regpu_smoke_{}", GetCurrentProcessId());
-  std::filesystem::create_directories(root, ignored);
-  _putenv_s("REGPU_LOG_DIR", root.string().c_str());
-  auto* runtime = new rex::Runtime(root, {}, {}, root / "cache");
-
-  rex::RuntimeConfig config;
-  config.graphics = rex::system::LoadGpuPlugin("regpu");
-  if (!config.graphics) {
-    std::printf("skipped: the regpu GPU plugin could not be loaded\n");
+  std::string error;
+  auto fixture = GpuFixture::Create(&error, {}, "regpu");
+  if (!fixture) {
+    std::printf("skipped: %s\n", error.c_str());
     return kSkipped;
   }
-  if (XFAILED(runtime->Setup(std::move(config)))) {
-    std::printf("skipped: the runtime or a Direct3D 12 device could not be set up\n");
-    return kSkipped;
-  }
-  auto* memory = runtime->memory();
-  auto* graphics = runtime->graphics_system();
+  Check(true, "the command processor runs a stream to its fence through the plugin");
 
-  auto alloc_physical = [&](uint32_t size) {
-    uint32_t address = memory->SystemHeapAlloc(size, 0x1000, rex::memory::kSystemHeapPhysical);
-    uint32_t physical = memory->GetPhysicalAddress(address);
-    std::memset(memory->TranslatePhysical(physical), 0, size);
-    return physical;
-  };
-  auto read_dword = [&](uint32_t physical) {
-    return rex::memory::load_and_swap<uint32_t>(memory->TranslatePhysical(physical));
-  };
-
-  uint32_t ring = alloc_physical(kRingDwords * 4);
-  uint32_t fence = alloc_physical(0x1000);
-  uint32_t scratch = alloc_physical(0x1000);
-  uint32_t writeback = alloc_physical(0x1000);
-
-  graphics->InitializeRingBuffer(ring, kRingSizeLog2);
-  graphics->EnableReadPointerWriteBack(writeback, 2);
-  graphics->SetInterruptCallback(0, 0);
-
-  std::vector<uint32_t> packets = {
-      xenos::MakePacketType3(xenos::PM4_MEM_WRITE, 3),
-      scratch | uint32_t(xenos::Endian::k8in32),
-      0x52653336,
-      0x30475055,
-      xenos::MakePacketType2(),
-      xenos::MakePacketType3(xenos::PM4_EVENT_WRITE_SHD, 3),
-      0,
-      fence | uint32_t(xenos::Endian::k8in32),
-      0x00000001,
-  };
-  auto* ring_host = memory->TranslatePhysical<uint8_t*>(ring);
-  for (size_t i = 0; i < packets.size(); ++i) {
-    rex::memory::store_and_swap<uint32_t>(ring_host + i * 4, packets[i]);
-  }
-  uint32_t write_index = uint32_t(packets.size());
-  auto* mmio = rex::runtime::MMIOHandler::global_handler();
-  Check(mmio->CheckStore(kGpuRegisterBase + kCpRbWptr * 4, write_index),
-        "the write pointer store reaches the plugin's register range");
-
-  Check(WaitFor([&] { return read_dword(fence) == 1; }),
-        "the command processor runs the stream to its fence");
-  Check(read_dword(scratch) == 0x52653336 && read_dword(scratch + 4) == 0x30475055,
+  uint32_t scratch = fixture->AllocPhysical(0x1000);
+  fixture->Submit(GpuFixture::MemWrite(scratch, {0x52653336, 0x30475055}, xenos::Endian::k8in32));
+  Check(fixture->Flush() && fixture->ReadDword(scratch) == 0x52653336 &&
+            fixture->ReadDword(scratch + 4) == 0x30475055,
         "MEM_WRITE lands in guest physical memory");
-  Check(WaitFor([&] { return read_dword(writeback) == write_index; }),
-        "the read pointer write-back reaches the write pointer");
 
+  auto* mmio = rex::runtime::MMIOHandler::global_handler();
   uint32_t value = 0;
-  Check(mmio->CheckLoad(kGpuRegisterBase + kCpRbWptr * 4, &value) && value == write_index,
-        "a register load returns what the guest stored");
+  Check(
+      mmio->CheckLoad(kGpuRegisterBase + kCpRbWptr * 4, &value) && value == fixture->write_index(),
+      "a register load returns what the guest stored");
   Check(mmio->CheckLoad(kGpuRegisterBase + kEdramTiming * 4, &value) && value == 0x08100748,
         "the EDRAM timing register reads as the console's");
 
-  graphics->FlushCaches();
-  std::printf("%s\n",
-              failures ? "regpu plugin smoke test FAILED" : "regpu plugin smoke test passed");
-  std::fflush(stdout);
-  rex::FlushLogging();
-  std::_Exit(failures ? 1 : 0);
+  uint32_t writeback = fixture->EnableReadPointerWriteBack(2);
+  fixture->Flush();
+  Check(fixture->ReadDword(writeback) == fixture->write_index(),
+        "the read pointer write-back reaches the write pointer");
+
+  CheckDraw(*fixture, {xenos::MsaaSamples::k1X, kSize}, 0xFF5599CC,
+            "a shaded rectangle resolves to guest memory");
+  CheckDraw(*fixture, {xenos::MsaaSamples::k1X, kSize}, 0xFF102030,
+            "a second colour replaces the first in the same surface");
+  CheckDraw(*fixture, {xenos::MsaaSamples::k4X, kSize * 2}, 0xFF336699,
+            "a 4x MSAA surface resolves one sample");
+
+  fixture->graphics_system()->FlushCaches();
+  Finish("draw");
+}
+
+HWND CreateTitleWindow() {
+  std::promise<HWND> created;
+  std::thread([&created] {
+    WNDCLASSW window_class{};
+    window_class.lpfnWndProc = DefWindowProcW;
+    window_class.hInstance = GetModuleHandleW(nullptr);
+    window_class.lpszClassName = L"re360_regpu_present_test";
+    RegisterClassW(&window_class);
+    RECT rect{0, 0, 960, 540};
+    AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+    HWND window =
+        CreateWindowW(window_class.lpszClassName, L"Re360 ReGPU present test", WS_OVERLAPPEDWINDOW,
+                      40, 40, rect.right - rect.left, rect.bottom - rect.top, nullptr, nullptr,
+                      window_class.hInstance, nullptr);
+    ShowWindow(window, SW_SHOWNOACTIVATE);
+    created.set_value(window);
+    MSG message;
+    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+      TranslateMessage(&message);
+      DispatchMessageW(&message);
+    }
+  }).detach();
+  return created.get_future().get();
+}
+
+std::string AskDebugServer(const std::string& command) {
+  WSADATA startup;
+  WSAStartup(MAKEWORD(2, 2), &startup);
+  SOCKET connection = socket(AF_INET, SOCK_STREAM, 0);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_port = htons(kDebugPort);
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  if (connect(connection, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0) {
+    closesocket(connection);
+    return {};
+  }
+  std::string line = command + "\n";
+  send(connection, line.data(), int(line.size()), 0);
+  std::string reply;
+  char buffer[512];
+  while (reply.find('\n') == std::string::npos) {
+    int received = recv(connection, buffer, sizeof(buffer), 0);
+    if (received <= 0) {
+      break;
+    }
+    reply.append(buffer, size_t(received));
+  }
+  closesocket(connection);
+  return reply;
+}
+
+void SubmitFrame(GpuFixture& fixture, uint32_t front_buffer, uint32_t color) {
+  const Surface surface{xenos::MsaaSamples::k1X, kFrameWidth};
+  SetupDraw(fixture, surface, kFrameWidth, kFrameHeight);
+  DrawRect(fixture, 0, 0, kFrameWidth, kFrameHeight, color);
+  Resolve(fixture, surface, kFrameWidth, kFrameHeight, xenos::CopySampleSelect::k0, front_buffer,
+          kFrameWidth, 0, {}, kFrameHeight);
+  fixture.Submit({xenos::MakePacketType3(xenos::PM4_XE_SWAP, 4), xenos::kSwapSignature,
+                  front_buffer, kFrameWidth, kFrameHeight});
+  fixture.Flush(std::chrono::seconds(60));
+}
+
+int PresentIntoTitleWindow() {
+  _putenv_s("REGPU_DEBUG", "1");
+  _putenv_s("REGPU_DEBUG_PORT", std::to_string(kDebugPort).c_str());
+  HWND window = CreateTitleWindow();
+
+  std::string error;
+  auto fixture = GpuFixture::Create(&error, {}, "regpu", window);
+  if (!fixture) {
+    std::printf("skipped: %s\n", error.c_str());
+    return kSkipped;
+  }
+  uint32_t front_buffer = fixture->AllocPhysical(kFrameWidth * kFrameHeight * 4);
+  constexpr uint32_t kColor = 0xFF2060C0;
+  SubmitFrame(*fixture, front_buffer, kColor);
+
+  std::filesystem::path shot = std::filesystem::temp_directory_path() /
+                               fmt::format("re360_regpu_present_{}.raw", GetCurrentProcessId());
+  std::atomic<bool> answered{false};
+  std::string reply;
+  std::thread asker([&] {
+    reply = AskDebugServer("shot " + shot.string());
+    answered = true;
+  });
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+  uint32_t frames = 1;
+  while (!answered && std::chrono::steady_clock::now() < deadline) {
+    SubmitFrame(*fixture, front_buffer, kColor);
+    ++frames;
+  }
+  asker.join();
+  std::printf("%u frames; debug server: %s", frames, reply.empty() ? "no reply\n" : reply.c_str());
+  Check(reply.find("\"ok\":true") != std::string::npos,
+        "a frame is presented into the title window after XE_SWAP");
+
+  std::vector<uint8_t> pixels(kShotWidth * kShotHeight * 4);
+  bool read = false;
+  if (FILE* file = _wfopen(shot.c_str(), L"rb")) {
+    read = std::fread(pixels.data(), 1, pixels.size(), file) == pixels.size();
+    std::fclose(file);
+  }
+  std::error_code ignored;
+  std::filesystem::remove(shot, ignored);
+  const uint8_t* centre = &pixels[((kShotHeight / 2) * kShotWidth + kShotWidth / 2) * 4];
+  std::printf("presented centre pixel: R %u G %u B %u (the frame drew R 192 G 96 B 32)\n",
+              centre[0], centre[1], centre[2]);
+  Check(read && centre[0] > centre[1] && centre[1] > centre[2] && centre[2] > 0,
+        "the presented picture is the colour the frame drew");
+  Finish("present");
+}
+
+}
+
+int main(int argc, char** argv) {
+  if (argc > 1 && std::string(argv[1]) == "--present") {
+    return PresentIntoTitleWindow();
+  }
+  return DrawWithoutWindow();
 }
