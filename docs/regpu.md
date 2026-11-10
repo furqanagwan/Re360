@@ -54,6 +54,9 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
 - **Guide and overlays.** ReGPU presents with its own swap chain, so the Xbox
   Guide, achievement toasts and the debug overlays, which draw through the
   runtime's presenter, do not appear with `gpu_plugin=regpu`.
+  That includes the first-run game picker and the launch menu: start with
+  `--game_data_root=<folder> --launch_menu=false` (or a saved game source), and
+  quit with Alt+F4.
 - **Runtime settings.** `vsync`, `resolution_scale` and the other GPU cvars
   belong to the `xenos` plugin. ReGPU starts at the game window's size with
   vsync on and a 60 fps cap, and takes its switches from `REGPU_*` environment
