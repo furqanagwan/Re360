@@ -25,8 +25,11 @@ and checked against Xenia and a real console. Read this before changing `src/reg
   half the pitch. ReGPU fills the colour surface with those bits as 8888 (`REGPU_NO_ALIASED_DEPTH_FILL=1`
   turns it off). Blood Stone clears its light buffer so; missed, its floors kept the normals drawn there and
   lit green. The depth bits are in the depth buffer's own format: with a D24FS8 buffer they are 20e4
-  float (1.0 is `0xF00000`), not 24-bit unorm. Packed as unorm, a later Blood Stone level filled a
-  colour buffer with `0xFFFFFF00` and the scene came out yellow (2026-11-11).
+  float (1.0 is `0xF00000`), not 24-bit unorm. The depth is the rectangle's z clamped to [0, 1], as
+  the hardware clamps it: a reverse-Z clear sends z a rounding error below 0 (Blood Stone: `-3.7e-9`
+  in a D24S8 view). Rejected as unreadable and taken as 1, Blood Stone's light buffer started at
+  `0xFFFFFF00`: every pixel fully lit with no blue, so the game had no shadows and a yellow cast
+  (2026-11-11).
 - **A resolve's rectangle is in its view's pixels.** Through a 4x view of a 1x surface, a view pixel is
   2x2 of the surface's, and sample select 4-6 averages them. D3D shrinks a 1280x720 surface to 640x360 that
   way. Copied one to one, Blood Stone's depth-of-field source held the scene's top-left quarter, laid over
