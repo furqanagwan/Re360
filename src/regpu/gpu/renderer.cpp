@@ -1605,7 +1605,7 @@ void InitDepthBlit()
     params[0].DescriptorTable.pDescriptorRanges = &range;
     params[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     params[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
-    params[1].Constants.Num32BitValues = 6;
+    params[1].Constants.Num32BitValues = 9;
     params[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
     D3D12_ROOT_SIGNATURE_DESC rs{};
     rs.NumParameters = 2;
@@ -1619,7 +1619,7 @@ void InitDepthBlit()
     static const char kSource[] = R"(
 Texture2D<float> depthTex : register(t0);
 Texture2D<float4> colorTex : register(t0);
-cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; };
+cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; float2 srcStep; uint srcTaps; };
 // Xenia's LinearToPWLGamma: what a k_8_8_8_8_GAMMA surface holds in memory.
 float LinearToPWLGamma(float l)
 {
@@ -1644,7 +1644,7 @@ float4 vs(uint id : SV_VertexID) : SV_Position
 }
 float ps(float4 pos : SV_Position) : SV_Target
 {
-    return depthTex.Load(int3(int2(pos.xy), 0));
+    return depthTex.Load(int3(int2(pos.xy * srcStep), 0));
 }
 Texture2D<uint2> stencilTex : register(t1);
 // 20e4 (D24FS8): 4-bit exponent biased by 15, 20-bit mantissa, [0, 2).
@@ -1666,7 +1666,18 @@ float4 psPack(float4 pos : SV_Position) : SV_Target
 }
 float4 psColor(float4 pos : SV_Position) : SV_Target
 {
-    float4 c = colorTex.Load(int3(int2(pos.xy), 0)) * scale;
+    // (srcStep: source texels per destination pixel, when the copy goes through another MSAA view of the
+    // surface; srcTaps: 2 averages a 2x2 spread of them, the view's four samples.)
+    float4 c = 0;
+    if (srcTaps > 1u)
+    {
+        [unroll] for (int j = 0; j < 2; j++)
+            [unroll] for (int i = 0; i < 2; i++)
+                c += colorTex.Load(int3(int2((floor(pos.xy) + float2(0.25 + 0.5 * i, 0.25 + 0.5 * j)) * srcStep), 0));
+        c *= 0.25 * scale;
+    }
+    else
+        c = colorTex.Load(int3(int2(pos.xy * srcStep), 0)) * scale;
     if (clampDest) c = clamp(c, destMin, destMax);
     if (toGamma & 1u) c.rgb = float3(LinearToPWLGamma(c.r), LinearToPWLGamma(c.g), LinearToPWLGamma(c.b));
     if (toGamma & 2u) c.a = round(saturate(c.a) * 3.0) / 3.0; // a 2-bit alpha destination (k_2_10_10_10)
@@ -1716,7 +1727,7 @@ float4 psColor(float4 pos : SV_Position) : SV_Target
         const std::string msSource = "#define SAMPLES " + std::to_string(samples) + R"(
 Texture2DMS<float, SAMPLES> depthMs : register(t0);
 Texture2DMS<float4, SAMPLES> colorMs : register(t0);
-cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; };
+cbuffer Blit : register(b0) { float scale; uint swapRB; uint clampDest; float destMin; float destMax; uint toGamma; float2 srcStep; uint srcTaps; };
 // Xenia's LinearToPWLGamma: what a k_8_8_8_8_GAMMA surface holds in memory.
 float LinearToPWLGamma(float l)
 {
@@ -1741,14 +1752,25 @@ float4 vs(uint id : SV_VertexID) : SV_Position
 }
 float ps(float4 pos : SV_Position) : SV_Target
 {
-    return depthMs.Load(int2(pos.xy), 0);
+    return depthMs.Load(int2(pos.xy * srcStep), 0);
 }
 float4 psColor(float4 pos : SV_Position) : SV_Target
 {
     float4 c = 0;
-    [unroll] for (int i = 0; i < SAMPLES; i++)
-        c += colorMs.Load(int2(pos.xy), i);
-    c = c / SAMPLES * scale;
+    if (srcTaps > 1u)
+    {
+        [unroll] for (int j = 0; j < 2; j++)
+            [unroll] for (int k = 0; k < 2; k++)
+                [unroll] for (int i = 0; i < SAMPLES; i++)
+                    c += colorMs.Load(int2((floor(pos.xy) + float2(0.25 + 0.5 * k, 0.25 + 0.5 * j)) * srcStep), i);
+        c = c / (4 * SAMPLES) * scale;
+    }
+    else
+    {
+        [unroll] for (int i = 0; i < SAMPLES; i++)
+            c += colorMs.Load(int2(pos.xy * srcStep), i);
+        c = c / SAMPLES * scale;
+    }
     if (clampDest) c = clamp(c, destMin, destMax);
     if (toGamma & 1u) c.rgb = float3(LinearToPWLGamma(c.r), LinearToPWLGamma(c.g), LinearToPWLGamma(c.b));
     if (toGamma & 2u) c.a = round(saturate(c.a) * 3.0) / 3.0; // a 2-bit alpha destination (k_2_10_10_10)
@@ -6276,8 +6298,38 @@ void EnsureResolved(ResolvedTexture& dest, uint32_t width, uint32_t height, uint
 
 // destRange: the destination's fixed-point range after the scale (the 16-bit integer range for the
 // 16-bit fixed formats); null none.
+// The copy's rectangle is in the pixels of the view it goes through (RB_SURFACE_INFO's MSAA mode). The
+// host surface is laid out for the mode it was drawn in (g_nativeMsaa): through another, a view pixel
+// is that many of the surface's across and down. D3D shrinks a 1x 1280x720 surface this way, as a
+// 640x360 4x one copied with all four samples averaged (Blood Stone's depth-of-field source: taken
+// one to one it held the top-left quarter of the scene, laid over the whole picture as a ghost).
+// A full-width surface is also stretched to the output's width, which a view at another pitch isn't.
+struct ResolveView
+{
+    float stepX = 1.0f, stepY = 1.0f;
+    uint32_t taps = 1;
+};
+ResolveView ResolveViewOfSurface(bool depth, uint32_t control)
+{
+    ResolveView view;
+    static LiveSwitch off("REGPU_NO_RESOLVE_VIEW_SCALE"); // A/B: one to one, as before
+    const uint32_t surface = gpureg::Get(RB_SURFACE_INFO), msaa = (surface >> 16) & 3;
+    const uint32_t key = depth ? DepthLayoutKey(surface) : LayoutKey(surface);
+    const uint32_t native = (depth ? NativeDepthSlot(key) : NativeSlot(key)).load(std::memory_order_relaxed);
+    if (off || native >> 2 != key || (native & 3) == msaa)
+        return view;
+    view.stepX = float(MsaaAcross(msaa)) / float(MsaaAcross(native & 3));
+    view.stepY = float(MsaaDown(msaa)) / float(MsaaDown(native & 3));
+    if ((surface & 0x3FFF) * MsaaAcross(msaa) / MsaaAcross(native & 3) == kWidth && !WidePass())
+        view.stepX *= ScaleWide() / ScaleY();
+    // Sample select 4-6 averages samples (RB_COPY_CONTROL bits 4-6); 0-3 take one.
+    if (!depth && ((control >> 4) & 7) >= 4 && view.stepX > 1.0f && view.stepY > 1.0f)
+        view.taps = 2;
+    return view;
+}
+
 void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXGI_FORMAT format, const D3D12_RECT& rect, float scale, bool swapRB = false,
-    const float* destRange = nullptr, uint32_t toGamma = 0)
+    const float* destRange = nullptr, uint32_t toGamma = 0, const ResolveView& view = {})
 {
     // REGPU_FREEZE_RESOLVES=<hex base>[,<hex base>...]: those images keep what they hold, later resolves
     // to them are skipped (debug: does a flicker come from an image's redraws?). Read every resolve, so
@@ -6362,9 +6414,10 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
     C().list->SetGraphicsRootSignature(g_r.blitRootSignature.Get());
     C().list->SetPipelineState(pso);
     C().list->SetGraphicsRootDescriptorTable(0, Gpu(g_r.srvHeap.Get(), slot, g_r.srvStride));
-    const uint32_t blitConstants[6] = { std::bit_cast<uint32_t>(scale), uint32_t(swapRB), uint32_t(destRange != nullptr),
-        std::bit_cast<uint32_t>(destRange ? destRange[0] : 0.0f), std::bit_cast<uint32_t>(destRange ? destRange[1] : 0.0f), uint32_t(toGamma) };
-    C().list->SetGraphicsRoot32BitConstants(1, 6, blitConstants, 0);
+    const uint32_t blitConstants[9] = { std::bit_cast<uint32_t>(scale), uint32_t(swapRB), uint32_t(destRange != nullptr),
+        std::bit_cast<uint32_t>(destRange ? destRange[0] : 0.0f), std::bit_cast<uint32_t>(destRange ? destRange[1] : 0.0f), uint32_t(toGamma),
+        std::bit_cast<uint32_t>(view.stepX), std::bit_cast<uint32_t>(view.stepY), view.taps };
+    C().list->SetGraphicsRoot32BitConstants(1, 9, blitConstants, 0);
     // Width and height stay in game pixels (the size the title knows); the texture and the
     // rectangle are scaled.
     const D3D12_VIEWPORT vp{ 0, 0, float(hostWidth), float(hostHeight), 0, 1 };
@@ -7269,7 +7322,8 @@ void Resolve()
         // centre's), so the copy rounds it as the hardware's does. REGPU_NO_RESOLVE_ALPHA2=1: as before.
         static LiveSwitch noAlpha2("REGPU_NO_RESOLVE_ALPHA2");
         const uint32_t blitFlags = (toGamma ? 1u : 0u) | (!depth && destFormat == 7 && !noAlpha2 ? 2u : 0u);
-        BlitResolve(depth, base, width, height, format, rect, depth ? 1.0f : std::ldexp(1.0f, bias), false, destRange, blitFlags);
+        BlitResolve(depth, base, width, height, format, rect, depth ? 1.0f : std::ldexp(1.0f, bias), false, destRange, blitFlags,
+            ResolveViewOfSurface(depth, control));
         // Temporal upscaling: each tile of the main view keeps its depth before it is cleared.
         if (g_temporal && g_scenePhase && !depth && width >= kWidth && rect.left == 0 && rect.right >= LONG(kWidth))
             CopySceneDepth(rect);
@@ -10612,18 +10666,51 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
     // The game asked for the colour target to be cleared before this draw (Host::clearBeforeDraw).
     if (clearBefore)
         C().list->ClearRenderTargetView(C().rtv, clearColour, 1, &hostScissor);
-    // The EDRAM is one memory: a depth-only draw (mode 5) writing depth and stencil FF at the colour
-    // surface's own base leaves its tiles reading white as colour. FH1 starts its night light buffer
-    // this way (a rectangle at depth 1): left black, every pixel decoded as full light.
+    // The EDRAM is one memory: a depth-only draw (mode 5) that always passes and writes depth and stencil
+    // at the colour surface's own base leaves there the 32 bits it wrote, depth in the top 24 and the
+    // stencil reference below, which read back as colour. D3D clears a colour surface this way (a
+    // rectangle whose depth and stencil reference are the clear colour's bits, often through a 4x view
+    // at half the pitch, so each sample is a pixel): Blood Stone clears its light buffer so before
+    // adding the lights, and left alone it kept the normals drawn there before (floors lit green).
+    // FH1 starts its night light buffer with depth 1 and stencil FF: white, every pixel full light.
+    // An 8888 surface takes the bits as its colour (alpha, red, green, blue from the top); other
+    // formats only the all-ones case, as white. The depth is the rectangle's own (D3D's clear passes
+    // it in the vertices); a draw that isn't such a rectangle is taken as depth 1.
     // REGPU_NO_ALIASED_DEPTH_FILL=1: colour keeps its contents (A/B).
     {
         static LiveSwitch noAliasedFill("REGPU_NO_ALIASED_DEPTH_FILL");
         const uint32_t depthControl = gpureg::Get(RB_DEPTHCONTROL);
         if (!noAliasedFill && (gpureg::Get(RB_MODECONTROL) & 7) == 5 && (depthControl & 7) == 7 && ((depthControl >> 4) & 7) == 7 &&
-            (gpureg::Get(RB_STENCILREFMASK) & 0xFF) == 0xFF && ((gpureg::Get(RB_COLOR_INFO) ^ gpureg::Get(RB_DEPTH_INFO)) & 0xFFF) == 0)
+            ((gpureg::Get(RB_COLOR_INFO) ^ gpureg::Get(RB_DEPTH_INFO)) & 0xFFF) == 0)
         {
-            const float white[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
-            C().list->ClearRenderTargetView(C().rtv, white, 1, &hostScissor);
+            uint32_t depth24 = 0xFFFFFF;
+            if ((initiator & 0x3F) == 8 && !vs.info.vertexFetchConstants.empty() && !((gpureg::Get(RB_DEPTH_INFO) >> 16) & 1))
+            {
+                const uint32_t k = vs.info.vertexFetchConstants[0];
+                const uint32_t d0 = gpureg::Get(gpureg::FetchConstants + k * 2), d1 = gpureg::Get(gpureg::FetchConstants + k * 2 + 1);
+                if (((d1 >> 2) & 0xFFFFFF) >= 3 && (d1 & 3) == 2)
+                {
+                    const uint32_t zb = __builtin_bswap32(GuestPtr<uint32_t>(GpuPhysToGuest(d0 & 0xFFFFFFFC))[2]);
+                    float z;
+                    memcpy(&z, &zb, 4);
+                    if (z >= 0.0f && z <= 1.0f)
+                        depth24 = std::min<uint32_t>(uint32_t(double(z) * 16777216.0), 0xFFFFFF);
+                }
+            }
+            const uint32_t bits = depth24 << 8 | (gpureg::Get(RB_STENCILREFMASK) & 0xFF);
+            const uint32_t colorFormat = (gpureg::Get(RB_COLOR_INFO) >> 16) & 0xF;
+            if (colorFormat <= 1 || bits == 0xFFFFFFFF)
+            {
+                const float colour[4] = { float((bits >> 16) & 0xFF) / 255.0f, float((bits >> 8) & 0xFF) / 255.0f, float(bits & 0xFF) / 255.0f,
+                    float(bits >> 24) / 255.0f };
+                // A rectangle that reaches the surface's right edge clears to the host surface's: a view at
+                // another pitch than the frame's scales by the height alone, which stops short of it when
+                // the output is not 16:9.
+                D3D12_RECT fill = hostScissor;
+                if (const uint32_t surface = gpureg::Get(RB_SURFACE_INFO); scissor.right >= LONG(surface & 0x3FFF))
+                    fill.right = std::max<LONG>(fill.right, LONG(SurfaceWidth()));
+                C().list->ClearRenderTargetView(C().rtv, colour, 1, &fill);
+            }
         }
     }
     {
