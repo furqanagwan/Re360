@@ -1165,7 +1165,7 @@ Not implemented, with reasons:
 
 ## Upstream ReXGlue since v0.10.0
 
-The fork's base is upstream [rexglue/rexglue-sdk](https://github.com/rexglue/rexglue-sdk) `v0.10.0` (`c94f5eb`). Upstream `main` has not moved since. Its `development` branch had 15 commits by 2026-09-27 (head `5cf287f`), reviewed here and ported in groups with the original authors kept.
+The fork's base is upstream [rexglue/rexglue-sdk](https://github.com/rexglue/rexglue-sdk) `v0.10.0` (`c94f5eb`). Its `development` branch had 15 commits by 2026-09-27 (head `5cf287f`), reviewed here and ported in groups with the original authors kept. The rest of what upstream released as v0.10.1 is reviewed [below](#upstream-rexglue-v0101-2026-11-06).
 
 | Upstream commit | Area | Status here |
 | --- | --- | --- |
@@ -1184,6 +1184,23 @@ The fork's base is upstream [rexglue/rexglue-sdk](https://github.com/rexglue/rex
 | `5cf287f` refactor(rexglue): do not force snake_case project names | CLI | **Ported, fixed.** Upstream's "original" name dropped the separators, so a project named `my_game` by earlier versions would regenerate `rexglue.cmake` pointing at `mygame_manifest.toml` and `mygame_pch.h`. Here the case is kept and words are joined with one underscore, which is also a valid identifier for `REX_DEFINE_APP` (for example `Blood Stone` becomes `Blood_Stone`). Existing names regenerate unchanged. Tests: `unit_tests [rexglue][init]`. |
 | `4c13508` deps: update SDL3 to 3.4.14 | Dependency | **Ported.** The pin moves from a development snapshot after 3.4.0 (`8bf3b72`, which had OpenXR GPU and GameSir HIDAPI sources) to the stable `release-3.4.14`. SDL is the fallback for input, audio and the window; all four configurations and Quantum of Solace pass on it. |
 | `e9d4425` deps: bump MoltenVK to 1.4.3 | Dependency | **Not applicable** (macOS/Vulkan; ADR-001, ADR-002). |
+
+## Upstream ReXGlue v0.10.1 (2026-11-06)
+
+Upstream released v0.10.1 on `main` as one squash commit (`546a082`) of its `development` work. Its four headline pull requests (#449, #425, #417, #450) are the commits above plus `7f7c92e`. The development commits not reviewed above, as of 2026-11-11:
+
+| Upstream commit | Area | Status here |
+| --- | --- | --- |
+| `bd833a2` feat(codegen): add sync fences for sync, lwsync, and eieio | Codegen | **Ported.** `sync` and `eieio` emit a `seq_cst` fence, `lwsync` an `acq_rel` fence ([memory barriers](../research/cpu/memory-barriers.md)). Blood Stone regenerated with 6,766 fences holds its 30 fps cap at the same CPU use (3.6 cores in its Istanbul level). PPC tests pass. |
+| `ea222e9` fix(codegen): fix register types to be unsigned | Codegen | **Ported** (the `stwcx.`/`stdcx.` fields; no behaviour change on x86-64). |
+| `7f7c92e` codegen: migrate stwcx. to std::atomic CAS, drop CR0.so and redundant fences (#450) | Codegen | **Not taken.** This fork's `stwcx.` (RG-GDK-072) also checks the reservation address and sets CR0.SO from XER.SO, and passes the hardware-captured PPC corpus; upstream's drops CR0.SO. Its removal of the fences around `mfmsr`/`mtmsrd` is not shown to be safe here. |
+| `5e2dae1` feat(system): add writable_code_segments | Memory | **Not taken.** Recompiled code never runs code from guest memory, so whether code segments are writable only matters to a title that patches its own code. |
+| `9dea59f` build: embed a version resource in shipped SDK binaries | Build | **Deferred.** Useful; would also need the `rexgpu-regpu` plugin. |
+| `5024759`, `00276db` fix(build): the SDK version and exported `rex::` targets under `add_subdirectory` | Build | **Deferred.** Title projects here use the installed SDK (`find_package`). |
+| `7f80718` fix(build): require SSE4.1 on SDK targets independent of the preset | Build | **Covered.** `rexglue_helpers.cmake` sets `-msse4.1` on every title target. |
+| `b5e0cf8` fix(build): expose the imgui and xxHash headers public SDK headers include | Build | **Partly covered** (xxHash is public on `rexruntime`); the imgui path is deferred with the `add_subdirectory` fixes. |
+
+Upstream's `development` branch has 326 more commits for 0.11 (head `5940371`, 2026-11-11): a module reorganisation (`rexbase`, `rexkernel`, `rexxbdm`), TLSF in place of o1heap, Vulkan and macOS builds, and many kernel, XAM and memory fixes. It cannot be merged as a whole into this Windows/D3D12 tree; its fixes will be reviewed one by one when 0.11 is released.
 
 ## Review process
 

@@ -381,12 +381,12 @@ bool BuildStwbrx(BuilderContext& ctx) {
 }
 
 bool BuildStwcx(BuilderContext& ctx) {
-  emitAtomicStoreConditional(ctx, "uint32_t", "__builtin_bswap32", "s32");
+  emitAtomicStoreConditional(ctx, "uint32_t", "__builtin_bswap32", "u32");
   return true;
 }
 
 bool BuildStdcx(BuilderContext& ctx) {
-  emitAtomicStoreConditional(ctx, "uint64_t", "__builtin_bswap64", "s64");
+  emitAtomicStoreConditional(ctx, "uint64_t", "__builtin_bswap64", "u64");
   return true;
 }
 
