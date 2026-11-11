@@ -33,6 +33,10 @@ MyGame.exe --gpu_plugin=regpu
 An existing project adds `regpu` to its `GPU_PLUGINS` list
 (`rexglue_setup_target(MyGame GPU_PLUGINS xenos regpu)`) and rebuilds.
 
+To make ReGPU a build's default (a release, say), configure the title with
+`-DREXGLUE_CVAR_DEFAULTS=gpu_plugin=regpu`; `--gpu_plugin=xenos` still picks
+the other plugin per run.
+
 ReGPU writes its shader and pipeline caches under the title's cache folder, in
 `regpu`. Its log is `regpu.log` in the working folder (`REGPU_LOG_DIR` moves it).
 The first run of a game compiles its shaders and can take minutes; later runs
@@ -93,11 +97,13 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
 - **The debug server's controller** (`regpuctl.py press`) is not merged into
   the runtime's input yet.
 
-## DXIL shader pack (opt-in)
+## DXIL shader pack
 
-`REGPU_DXIL=1` makes every translated shader DXIL, compiled with DXC instead
-of FXC. A pipeline takes DXBC or DXIL for all its stages, never a mix, so it is
-one mode for the whole run. Each shader comes from, in order:
+With DXIL on, every translated shader is DXIL, compiled with DXC instead of
+FXC. It is on when a `regpu_shaders` pack is beside the game (as in a
+release), and `REGPU_DXIL=1` or `0` forces it either way. A pipeline takes
+DXBC or DXIL for all its stages, never a mix, so it is one mode for the whole
+run. Each shader comes from, in order:
 
 1. the shader pack: `regpu_shaders\<key>.dxil` beside the game executable
    (`REGPU_SHADER_PACK` moves it), built ahead of time;
@@ -122,7 +128,7 @@ a run left (`%LOCALAPPDATA%\<title>\cache\regpu\shadercache`, or
 cmake --build out/build/release --target bloodstone_regpu_shaders
 ```
 
-Play with `REGPU_DXIL=1` after a pack build and the shaders the pack lacked
+Play after a pack build and the shaders the pack lacked
 are recorded in the cache; the next pack build includes them.
 `regpu_dis --pack <pack folder> <cache folder>` does the same by hand.
 

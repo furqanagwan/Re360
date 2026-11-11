@@ -34,7 +34,8 @@ endfunction()
 #     so this single copy handles them transitively.
 #   - The shipped shader cache (SHADER_CACHE <dir>, or ./shader_cache).
 #   - GUIDE_PRESENTATION xbox360 (default) or original-xbox selects its Guide scenes.
-#   - The title's cvar defaults (CVAR_DEFAULTS "name=value" ...).
+#   - The title's cvar defaults (CVAR_DEFAULTS "name=value" ...), plus any
+#     the build passes in REXGLUE_CVAR_DEFAULTS.
 #   - The title's replacement shaders (SHADER_REPLACEMENTS <dir>): HLSL
 #     compiled with FXC, or DXBC, staged in shader_replacements beside the
 #     executable, with shader_replacements=true as a title default
@@ -76,6 +77,11 @@ function(rexglue_configure_target target_name)
     endif()
     if(REXGLUE_UPDATE_ASSET)
         list(APPEND ARG_CVAR_DEFAULTS "update_asset=${REXGLUE_UPDATE_ASSET}")
+    endif()
+    # Defaults a build adds without editing the title's CMakeLists, such as a
+    # release choosing its GPU plugin (-DREXGLUE_CVAR_DEFAULTS=gpu_plugin=regpu).
+    if(REXGLUE_CVAR_DEFAULTS)
+        list(APPEND ARG_CVAR_DEFAULTS ${REXGLUE_CVAR_DEFAULTS})
     endif()
     # The title's own cvar defaults ("name=value" each), under its config
     # file and the command line (ADR-009: titles opt in by name).

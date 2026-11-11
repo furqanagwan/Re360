@@ -74,9 +74,23 @@ bool DxcAvailable()
     return CreateInstance() != nullptr;
 }
 
+// REGPU_DXIL=1 or 0 decides; unset, a shader pack beside the game (a release ships one) turns it on.
 bool UseDxil()
 {
-    static const bool on = getenv("REGPU_DXIL") && atoi(getenv("REGPU_DXIL")) != 0 && DxcAvailable();
+    static const bool on = [] {
+        const char* value = getenv("REGPU_DXIL");
+        std::error_code ec;
+        const bool wanted = value ? atoi(value) != 0 : std::filesystem::is_directory(ShaderPackDir(), ec);
+        if (!wanted)
+            return false;
+        if (!DxcAvailable())
+        {
+            Log("dxc: DXIL wanted but dxcompiler.dll is missing: shaders stay DXBC (fxc)");
+            return false;
+        }
+        Log("dxc: translated shaders are DXIL (%s)", value ? "REGPU_DXIL" : "a shader pack is beside the game");
+        return true;
+    }();
     return on;
 }
 
