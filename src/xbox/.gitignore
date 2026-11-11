@@ -1,0 +1,10 @@
+out/
+build/
+CMakeUserPresets.json
+*.xex
+*.xtt
+*.xttp
+*.xma
+*.xur
+*.xzp
+$SystemUpdate/

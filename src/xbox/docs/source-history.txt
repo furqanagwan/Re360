@@ -1,0 +1,616 @@
+commit 043c12441fd8f5088fc2caa2080cae5757443aa0
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Sat Oct 3 20:43:10 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Sat Oct 3 20:43:10 2026 +0100
+
+    Guide: enable Manage Storage on the BC Home tab (#202)
+
+    The guide disables every control it doesn't handle, and #196 never added
+    btnManageStorage to that list, so the page couldn't be opened. Found in
+    the Quantum of Solace end-of-list run: with the fix, Manage Storage lists
+    the title's save (James Bond Save Game, 593 KB, its save date).
+
+    Closes #166.
+
+ src/ui/guide/xbox_guide.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+commit fb657a79df9f362462ee7ba8f458e20ce192d7ed
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Sat Oct 3 11:12:58 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Sat Oct 3 11:12:58 2026 +0100
+
+    Guide: Manage Storage, wider glyph ranges; .xttp findings (RG-GDK-061) (#196)
+
+    - Home > Manage Storage (the backward-compatibility Home tab's
+      btnManageStorage) lists the title's saved games on this PC, the
+      profile's and shared ones, with size and last-saved time, and deletes
+      one after the skin's message box asks; a save the game has open is not
+      deleted. ContentManager::GetPackagePath gives the guide a save's folder.
+    - The guide's font atlas is built once (ImGui legacy mode), so its ranges
+      decide the glyphs: now Latin Extended-B, Greek and Cyrillic too, plus
+      every character of the guide's string tables.
+    - The 17559 update's .xttp fonts are small patches to the console's flash
+      fonts, which no build has; the whole BC xenonjklatin.xtt is used, so
+      they aren't (docs/xbox-guide.md).
+
+ include/rex/ui/guide/xbox_guide.h |  21 +++-
+ src/ui/guide/guide_storage.cpp    | 243 ++++++++++++++++++++++++++++++++++++++
+ src/ui/guide/xbox_guide.cpp       |  41 ++++++-
+ tests/unit/ui/guide_font_test.cpp |  39 ++++++
+ 4 files changed, 340 insertions(+), 4 deletions(-)
+
+commit 0a9e9103243a9a2553d59ff32194df71458e0d2f
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Fri Oct 2 12:53:29 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Oct 2 12:53:29 2026 +0100
+
+    The console's own on-screen keyboard for XamShowKeyboardUI (RG-GDK-059) (#179)
+
+    The guide bundle now carries vk ($flash_vk.xex); XamShowKeyboardUI shows
+    its KeyboardMain and KeyboardBase scenes in the HUD backdrop through a
+    keyboard provider ReXApp registers, with the ImGui dialog as the fallback.
+    VirtualKeyboard holds the English pages from vk.xex's tables (QWERTY,
+    symbols, accents), Caps, the cursor, Backspace and Space within the
+    buffer's length. The pad works as on the console (A, B, X, Y, LB/RB,
+    LT/RT, left stick, Start; GuidePad gains Start, the left stick and the
+    triggers) and a PC keyboard types into the field. The skin's caret follows
+    the cursor. keyboard_test shows it from the console; rexglue xui-dump writes
+    out the built-in packages for research. The guide bundle now also depends
+    on the rexglue CLI, so a newer SDK rebuilds it. Button glyph letters draw
+    with AddText.
+
+ include/rex/ui/guide/guide_input.h      |  10 +-
+ include/rex/ui/guide/virtual_keyboard.h |  65 +++++
+ include/rex/ui/guide/xbox_guide.h       |  13 +
+ include/rex/ui/guide/xbox_keyboard.h    |  90 +++++++
+ include/rex/ui/xui/system_update.h      |   5 +-
+ src/ui/guide/guide_input.cpp            |  16 +-
+ src/ui/guide/virtual_keyboard.cpp       | 121 +++++++++
+ src/ui/guide/xbox_guide.cpp             |  28 ++-
+ src/ui/guide/xbox_keyboard.cpp          | 423 ++++++++++++++++++++++++++++++++
+ tests/unit/ui/virtual_keyboard_test.cpp |  91 +++++++
+ 10 files changed, 849 insertions(+), 13 deletions(-)
+
+commit e3623bb74bb6e2d38163e167642a1e30dec4c2ec
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Fri Oct 2 10:39:52 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Oct 2 10:39:52 2026 +0100
+
+    Silence a minimised title's audio (RG-GDK-065) (#178)
+
+    As Microsoft's PC backward compatibility does (disableAudioOnConstrained),
+    the output plays silence while the window is minimised; the title keeps
+    running and audio returns on restore. audio_mute_minimized (default on)
+    turns it off, and the guide's Volume page shows it as Mute When Minimized,
+    on the console's own Kinect checkbox.
+
+ src/ui/guide/guide_settings.cpp | 36 +++++++++++++++++++++++++++++++-----
+ 1 file changed, 31 insertions(+), 5 deletions(-)
+
+commit 500b058c15314de9a20ab47e8060d3758925ddbb
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Fri Oct 2 09:17:32 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Oct 2 09:17:32 2026 +0100
+
+    The backward-compatibility guide's own three tabs (RG-GDK-061 part 2) (#174)
+
+    With REXGLUE_GUIDE_FLASH, the guide loads the BC hud's emulator scenes:
+    GuideMainEmulator (Games, Home, Settings; no timeline rewrite),
+    HomeTabEmulatorSignedInLocal, GamesTabEmulatorSignedIn,
+    SettingsTabEmulatorSignedIn and OptionsEmulator. Manage Game, Title Updates
+    and Active Downloads follow Awards; Patches, Mods and Cheats follow Xbox
+    Settings, which opens XboxOneXSettings (Graphics: match the display,
+    Performance: the console's resolution). A 17559-only build keeps the
+    three-tab rewrite of GuideMain.
+
+ include/rex/ui/guide/guide_layout.h |  8 ++--
+ include/rex/ui/guide/xbox_guide.h   | 16 ++++++-
+ src/ui/guide/guide_settings.cpp     | 43 ++++++++++++++++-
+ src/ui/guide/xbox_guide.cpp         | 95 +++++++++++++++++++++++++++----------
+ tests/unit/ui/xui_runtime_test.cpp  | 57 ++++++++++++++++++++++
+ 5 files changed, 188 insertions(+), 31 deletions(-)
+
+commit ad7d1fd441335aa7ab8bfa37182d2113b012518c
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Fri Oct 2 08:55:46 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Fri Oct 2 08:55:46 2026 +0100
+
+    Unlock the console's XTT fonts for the guide (RG-GDK-061 part 1) (#167)
+
+    The console's .xtt fonts are repacked TrueType, not encrypted: a signed
+    header, a zlib sfnt directory, and glyph outlines in separately compressed
+    4 KiB xglf blocks located by xloc as (block << 16) | offset.
+    xui::XttToTrueType rebuilds glyf/loca, keeps the font's own tables and
+    derives maxp, OS/2 and post when missing.
+
+    guide-bundle takes several sources, first wins, and reads an Xbox PC
+    backward-compatibility game's Content/Flash folder (plain <module>.xex
+    names) plus .xtt fonts from flash folders and the update package. The
+    optional REXGLUE_GUIDE_FLASH puts that folder ahead of
+    REXGLUE_SYSTEM_UPDATE. The guide draws its text in xenonjklatin when the
+    built-in bundle has it, with Segoe UI as the fallback.
+
+ include/rex/ui/guide/xbox_guide.h  |   7 +-
+ include/rex/ui/xui/system_update.h |  20 ++-
+ include/rex/ui/xui/xtt_font.h      |  31 ++++
+ src/ui/guide/xbox_guide.cpp        |  33 +++-
+ src/ui/xui/system_update.cpp       |  69 ++++++-
+ src/ui/xui/xtt_font.cpp            | 355 +++++++++++++++++++++++++++++++++++++
+ tests/unit/ui/xtt_font_test.cpp    | 252 ++++++++++++++++++++++++++
+ tests/unit/ui/xui_format_test.cpp  |   7 +-
+ 8 files changed, 761 insertions(+), 13 deletions(-)
+
+commit 6a94a0bd6a2102fa8bb2b4540c3172e2cc0f9318
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 19:53:43 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 19:53:43 2026 +0100
+
+    Title Updates and Active Downloads in the guide (RG-GDK-057 part 3) (#158)
+
+    Games & Apps gains Title Updates, a page of its own below Manage Game
+    (add-ons stay alone in Manage Game). Each update the title lists shows
+    Download, its progress, On, Off, or Not in Build; A downloads it or, once
+    installed, turns it on or off after the skin's message box (the game
+    restarts into the other executable: the guide ends the title and ReXApp
+    starts it again after shutdown, without the command line's title update
+    flags); X installs its package from a file on this PC. Downloads run in a
+    process-wide job list, so they carry on with the guide closed, and
+    Games & Apps > Active Downloads lists them with progress, A cancelling.
+
+    Fixes from the same work:
+    - An update build's sources.cmake replaced the original's add-on list, so
+      a title built with a title update embedded no add-on catalogue and showed
+      add-on IDs (regression from part 1); each version keeps its own list.
+    - Wrapped text taller than its box (a long add-on description) ran past
+      its pane. It now scrolls as the console's did: holds, scrolls slowly to
+      the end, holds, fades out and back in at the top, clipped to the box.
+    - The X key maps to the guide's X action.
+
+    Refs #153
+
+ include/rex/ui/guide/title_update.h |  31 +++
+ include/rex/ui/guide/xbox_guide.h   |  41 +++-
+ include/rex/ui/xui/renderer.h       |   9 +
+ include/rex/ui/xui/text_scroll.h    |  30 +++
+ src/ui/guide/guide_settings.cpp     |   5 +
+ src/ui/guide/guide_title_update.cpp | 469 ++++++++++++++++++++++++++++++++++++
+ src/ui/guide/title_update.cpp       |  81 +++++++
+ src/ui/guide/xbox_guide.cpp         |  45 +++-
+ src/ui/xui/renderer.cpp             |  53 ++++
+ tests/unit/ui/xui_runtime_test.cpp  |  18 ++
+ 10 files changed, 772 insertions(+), 10 deletions(-)
+
+commit 722158fb6172b4fecaeb05153dbb280f18fe3402
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 19:25:42 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 19:25:42 2026 +0100
+
+    Download, install and choose optional title updates (RG-GDK-057 part 2) (#157)
+
+    A title's config lists its updates ([[title_update]]: version, media_id,
+    base_version, content_id, optional size, date and changelog), compiled into
+    PPCImageInfo::title_updates for the guide.
+
+    rex/ui/guide/title_update.h reads and checks a LIVE/CON package (content
+    type, title, disc, base version, and its STFS content ID: the SHA-1 of the
+    header region, which covers the whole file and is Xbox Unity's hash),
+    downloads it from the first source that has it (Xbox Unity by content ID,
+    then title_update_sources URL templates), and installs it as downloaded to
+    %LOCALAPPDATA%\<title>\title_updates\<version>.
+
+    At startup the title_update setting picks the executable: the original
+    hands over to <title>_tu<version>.exe only when that update is installed
+    and built, the update build hands back when it's turned off or removed,
+    and the original is always the fallback. An update build mounts its
+    installed package without --update_data_root.
+
+    Validated: unit tests, a real Xbox Unity download of Quantum of Solace's
+    title update 2, and the handover between the real executables.
+
+    Refs #153
+
+ include/rex/ui/guide/title_update.h | 135 ++++++++++
+ src/ui/guide/title_update.cpp       | 510 ++++++++++++++++++++++++++++++++++++
+ tests/unit/ui/title_update_test.cpp | 299 +++++++++++++++++++++
+ 3 files changed, 944 insertions(+)
+
+commit 6e53a6447909275cf6ab8474724dd07843ebb242
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 16:18:06 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 16:18:06 2026 +0100
+
+    Profile named after the signed-in Xbox gamertag; multiplied row lines (RG-GDK-052) (#148)
+
+    The profile takes the gamertag of the Xbox account signed in to Windows
+    (HKCU\Software\Microsoft\XboxLive Gamertag, cut to 15 characters), so the
+    guide's Home tab and titles' XUserGetName show it; the user_gamertag cvar
+    overrides it and User stays the fallback. XUserGetGamertag is not usable:
+    XUserAddAsync returns E_GAMEUSER_NO_PACKAGE_IDENTITY without a Store package
+    identity. The XUID is unchanged, so saves stay where they are.
+
+    XUI BlendMode 1 (multiply) is drawn for figures: the skin's row separators
+    darken each row by the same proportion instead of fading into darker rows.
+
+ src/ui/xui/renderer.cpp | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+commit c365d7460aed22b776509a3b9f138641e0799993
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 16:06:11 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 16:06:11 2026 +0100
+
+    Guide: three tabs, Leave Game, sharp button glyphs (RG-GDK-051) (#147)
+
+    GuideMain's timelines are rewritten for Games & Apps, Home and Settings
+    when the scenes load (UseThreeTabs): the outermost blade on the side with
+    one tab fewer is hidden and each label follows its inner neighbour's track,
+    so Home to Settings is one shuffle (the scene's 3To4, renamed 2To4) and no
+    blade waits behind the panel. Replaces the rest-only kBladeLayouts fix-up
+    and the queued double shuffle.
+
+    Home's entry and Y read Leave Game, and the Home tab is titled with the
+    profile's name, as the Xbox One and Series guide does for 360 titles.
+    System Settings is renamed Xbox Settings. The A/B/X/Y glyphs are drawn as
+    discs with centred letters, sharp at 4K. The Achievements row's gamerscore
+    glyph takes its label's colour, so it shows on an unfocused row. Manage
+    Game's banner spans the right pane.
+
+ include/rex/ui/guide/guide_layout.h |  15 +++
+ include/rex/ui/guide/xbox_guide.h   |  10 +-
+ src/ui/guide/guide_dlc.cpp          |  13 ++-
+ src/ui/guide/guide_layout.cpp       | 146 ++++++++++++++++++++++++
+ src/ui/guide/xbox_guide.cpp         | 214 ++++++++++++++++++++++++------------
+ tests/unit/ui/xui_runtime_test.cpp  | 159 +++++++++++++++++++++++++++
+ 6 files changed, 476 insertions(+), 81 deletions(-)
+
+commit 56ed927f4af4507893e8f1e17ee111a678b255b3
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 14:59:57 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 14:59:57 2026 +0100
+
+    Manage Game lists the title's marketplace add-ons (RG-GDK-050) (#146)
+
+    A title's config lists its add-ons as [[dlc]] entries by marketplace
+    media ID. rexglue dlc-find finds them in the Xbox 360 marketplace
+    catalogue; at build time rexglue dlc-catalog fetches their titles,
+    publishers, descriptions, banners and tiles in the builder's language
+    and the executable embeds them. Manage Game lists every add-on with
+    Install, Installed or Needs Update where the console showed the price,
+    and the banner and details on the right; Install takes the package from
+    the DLC folder or asks for it.
+
+    Closes #145
+
+ include/rex/ui/guide/dlc_catalog.h |  51 ++++++
+ include/rex/ui/guide/xbox_guide.h  |  21 ++-
+ include/rex/ui/xui/runtime.h       |   3 +-
+ src/ui/guide/dlc_catalog.cpp       | 129 ++++++++++++++
+ src/ui/guide/guide_dlc.cpp         | 332 ++++++++++++++++++++++++++-----------
+ src/ui/guide/xbox_guide.cpp        |  12 ++
+ src/ui/xui/runtime.cpp             |   5 +-
+ tests/unit/ui/dlc_catalog_test.cpp |  71 ++++++++
+ 8 files changed, 517 insertions(+), 107 deletions(-)
+
+commit babdb1395ab71b58d933051b9676480189db6902
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 14:37:40 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 14:37:40 2026 +0100
+
+    Guide: Close Game, no Media blade, the gamerscore glyph (RG-GDK-049) (#144)
+
+    Home keeps one entry, the console's Xbox Home renamed Close Game, with
+    its own prompt; the Y legend reads Close Game. Connect to Xbox Live and
+    the disabled title entry are removed. At rest, the removed Media tab's
+    blade slot is closed up. Segoe Xbox's gamerscore glyph (U+E00A) is drawn
+    as the shape of sharedres GScore_white.png traced at 256 pixels, inline
+    in labels and alone in the Achievements button.
+
+    Closes #143
+
+ include/rex/ui/guide/xbox_guide.h |   2 +
+ include/rex/ui/xui/renderer.h     |   7 ++
+ src/ui/guide/xbox_guide.cpp       | 131 +++++++++++++++++++++++++++++++++-----
+ src/ui/xui/renderer.cpp           |  71 +++++++++++++++++++++
+ 4 files changed, 195 insertions(+), 16 deletions(-)
+
+commit eb6e380d4fefa415d46373bdb533174544893075
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 11:09:51 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 11:09:51 2026 +0100
+
+    Bluetooth pads through XInput beside GameInput; real controller battery (RG-GDK-047) (#140)
+
+    GameInput does not list Bluetooth LE pads at startup and reports them
+    wired with no battery once it does. An XInput driver beside it now serves
+    the pads GameInput does not, matched by USB IDs. Drivers report battery
+    through GetDeviceBattery: GameInput's GetBatteryState, XInput's battery
+    information, or the pad's GATT Battery Service read on a worker thread.
+    The guide shows player 1's level with GuideMain's four battery frames and
+    hides it for wired pads, as the console does.
+
+    Closes #139
+
+ include/rex/ui/guide/xbox_guide.h |  3 +++
+ src/ui/guide/xbox_guide.cpp       | 46 ++++++++++++++++++++++++++++++++++-----
+ 2 files changed, 43 insertions(+), 6 deletions(-)
+
+commit d887c8851aa2860119f4d32bd6b6663b7e4ee7be
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 10:04:47 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 10:04:47 2026 +0100
+
+    Draw at the title's own resolution by default; sharp battery icon (RG-GDK-046) (#138)
+
+    - resolution_match_display defaults to false: on a 4K display it drew
+      Quantum of Solace at 3x (nine times the pixels) and gameplay lost
+      frames. The Resolution page offers Original, then 2x, 3x and Match
+      Display marked Experimental.
+    - The controller battery icons (38 x 14 PNGs) are redrawn as shapes
+      through a new RenderResources::vector_image hook.
+    - Radial gradients are subdivided by on-screen size, and the immediate
+      drawer's upload pages are 8 MiB: some guide pages passed 160,000
+      vertices and failed to upload.
+
+    Closes #137
+
+ include/rex/ui/xui/renderer.h   |  6 ++++
+ src/ui/guide/guide_settings.cpp | 14 ++++----
+ src/ui/guide/xbox_guide.cpp     | 79 ++++++++++++++++++++++++++++++++++++-----
+ src/ui/xui/renderer.cpp         | 23 +++++++++---
+ 4 files changed, 103 insertions(+), 19 deletions(-)
+
+commit f7894bf8017d1d9cdb06fef6bfdbde971da93142
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 09:17:31 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 09:17:31 2026 +0100
+
+    Guide look from console photos; Mods and title cheat codes (RG-GDK-043) (#133)
+
+    Compared with photos of the dashboard 2.0.17559 guide:
+    - Darken the title behind the guide to a quarter, fading with the HUD.
+    - XUI point size to scene units 1.2 -> 1.6: text was a quarter too small.
+    - Radial brush Scale is a texture scale, so the ring of light's arcs form
+      a circle; light player 1's quadrant green and show the controller
+      battery, as XAM does in code.
+    - Honour ImGui VtxOffset so draw lists may pass 65,535 vertices.
+
+    Settings > Cheats becomes Mods (category "mod"; "cheat" still read). A
+    new Settings > Cheats lists the title's own cheat codes from [[cheat]]
+    config entries, compiled into PPCImageInfo::title_cheats.
+
+    Closes #132
+
+ include/rex/ui/guide/xbox_guide.h  |   4 ++
+ include/rex/ui/xui/renderer.h      |   7 ++-
+ src/ui/guide/guide_settings.cpp    |  71 ++++++++++++++++++++++----
+ src/ui/guide/xbox_guide.cpp        | 101 +++++++++++++++++++++++++++++++++++--
+ src/ui/xui/renderer.cpp            |  24 +++++----
+ tests/unit/ui/guide_input_test.cpp |   5 +-
+ 6 files changed, 182 insertions(+), 30 deletions(-)
+
+commit f6537daa6ed26353c7d72c3e1f63f94a2c92a55e
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 08:47:27 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 08:47:27 2026 +0100
+
+    XUI runtime and the Xbox guide (RG-GDK-041 parts 2 and 3) (#129)
+
+    * Read the console's own XUI scenes: XUIZ, XUIS, XUR v8 (RG-GDK-041 part 1)
+
+    The Xbox guide (#127) runs the dashboard's own scenes from the owner's
+    system update. This is the format layer:
+
+    - Package / ParseStringTable: XUIZ packages and XUIS string tables.
+    - ParseXur: XUR v8 element trees, shared and compound properties,
+      gradient stops, figure paths, timelines with compound property paths
+      and named frames. The declared object count and full DATA consumption
+      check the schema.
+    - schema.cpp: property order for the classes the guide, skin and
+      achievement scenes use (interoperability data only).
+      AccountManagementNavButton derives from GuideDashCommandNavButton.
+    - SystemUpdate: $SystemUpdate folder or su*_00000000 package through the
+      SDK's STFS device, $flash_*.xex resources (plain, basic or LZX), XUIZ
+      packages keyed module/resource.
+
+    ADR-011 records the design; docs/xbox-guide.md the format and what is
+    inferred. unit_tests [xui] covers every parser with synthetic data;
+    [local] decodes every non-Kinect guide scene from REXGLUE_SYSTEM_UPDATE.
+
+    * Run XUI scenes: elements, visuals, timelines, rendering, UI sounds (RG-GDK-041 part 2)
+
+    The runtime the Xbox guide (#127) runs the console's scenes on:
+
+    - Element: builds a scene with skin visuals (named, or named after the
+      class, as XUI does), anchoring against the parent's design size,
+      named-frame playback (linear, step and eased keyframes, stop and goto
+      commands, compound paths such as Fill.FillColor copied per element),
+      sound cues fired as the playhead crosses them, Nav* navigation that
+      passes over hidden controls, and Focus/KillFocus/InitFocus.
+    - ResolveFile: sharedres://, xam://, the scene's package, then the skin
+      and shared packages skin visuals keep their media in.
+    - Render: figures (solid, linear and radial gradients, Bezier outlines,
+      strokes), images, nine-grids and text (style bits, ellipsis, drop
+      shadow, rotation through vertex transform) on an ImGui draw list.
+    - DecodeXmaFile: single-stream RIFF XMA UI sounds through the xmaframes
+      decoder; UiSoundPlayer plays them on a separate XAudio2 engine.
+
+    The XMA frame synthesis and XUIZ/XEX byte builders move to shared test
+    headers. unit_tests [xui], [ui_sound]; [local] plays GuideMain's 2To3
+    blade shuffle and decodes every guide sound (all audible).
+
+    * The Xbox guide over a running title (RG-GDK-041 part 3)
+
+    Back+Start (or the Guide button, or Home) opens the console's own Metro
+    guide, run from the owner's system update on the XUI runtime:
+
+    - XboxGuide hosts GuideMain in the HUD backdrop (hudbkgnd ClosedToHalf),
+      brings the tab in with <tab>Close, shuffles blades with iToj, and
+      drives focus and presses through the skin visuals' named frames and
+      sounds. Controls it cannot honour stay in the menu, disabled.
+    - Games & Apps > Achievements: 802_Achievements grid from the
+      AchievementManager (XDBF icons, unearned/secret images, focused
+      achievement header, count), 828_AchievDetails on A.
+    - Xbox Home (Y or the Home tab) and Turn Off Console ask through the
+      skin's XuiMessageBox3 in the backdrop's error frame; Yes closes the
+      window through its normal path.
+    - While open: guest input blocked, XN_SYS_UI, XamIsUIActive (new
+      xeXamAdd/RemoveSystemUI).
+    - ReXApp: xbox_guide / xbox_guide_system_update cvars, background asset
+      load, Segoe UI fonts in the atlas, a pad chord poller, bind_xbox_guide
+      (Home added to the key names).
+    - Runtime: list population from the item template, disabled focus and
+      press frames, RemoveChild; message box bodies wrap.
+
+    unit_tests [guide] covers the chord and pad handling. Checked with
+    Quantum of Solace (GDK Release): tabs, achievements, the Xbox Home prompt
+    and close, no log errors.
+
+    * Open the guide with View+Menu only; leave the Xbox button to Game Bar (RG-GDK-041)
+
+    The owner's pad (ROG Raikiri II) opens Xbox PC Game Bar with the Xbox
+    button, and Xbox backward compatibility opens the 360 guide with View+Menu.
+    The chord no longer counts the Guide bit.
+
+    * Show achievement unlocks with XAM's own popup (RG-GDK-041)
+
+    Unlocks play xam notify.xur with the skin's scr_Notification visual (the
+    Xbox sphere burst, ring-of-light arcs, the bar and NotifyPopup.xma) and
+    XAM's "Achievement unlocked" text, instead of the SDK toast, which stays
+    the fallback without a system update.
+
+    Renderer fixes found on it: gradients are sampled across the figure's
+    outline (subdivided fans), radial brushes honour the fill's Translation,
+    Rotation and Scale, and element rotation uses the whole quaternion (half
+    turns about X or Y mirror). Console command achievement_notify [id]
+    previews a popup. docs/xbox-guide.md lists every guide menu entry.
+
+    * Guide settings pages, switchable patches, display resolution (RG-GDK-041)
+
+    Settings > Preferences opens the console's Options scenes: Notifications
+    (show, sound), Volume (Game Volume slider on audio_volume), Vibration and a
+    Resolution page (match display, 720p, 1440p, 2160p). Settings > Patches and
+    Cheats list the title's switchable code patches and turn them on and off
+    while it runs; choices are saved in the title's config.
+
+    Codegen: `switchable = true` patches keep the image original and emit both
+    versions of each changed word behind g_rex_patch_active flags, listed in
+    PPCImageInfo::switchable_patches with a category. Branches are refused.
+
+    By default the title draws at the display's resolution (resolution_scale
+    from the monitor, 3 at 2160p), and the guide's fonts are baked for the
+    display so text is sharp at 4K.
+
+    Family Settings, Account Management, Kinect Tuner, Turn Off Console and the
+    Media tab are removed from the guide, kept in code so they can return.
+    Labels no longer take focus.
+
+    * Build the Xbox guide into every title; register-set patches (RG-GDK-041)
+
+    The guide no longer needs anything from players. Whoever builds a title
+    sets REXGLUE_SYSTEM_UPDATE once (CMake or environment) to their own
+    console's $SystemUpdate; rexglue_configure_target, which every title
+    calls, runs the new `rexglue guide-bundle` to take the four modules the
+    guide reads (hud, huduiskin, xam, gamerprofile, about 2.7 MB) and embeds
+    them in the executable with .incbin. At run time the guide loads from the
+    embedded bundle, offline; the cvar and folder lookups remain as fallbacks
+    for builds without one. Nothing from the update ships with the SDK.
+
+    Switchable patches can now also set a register before an instruction,
+    optionally only when lr holds a given return address ([[patch.set]]), as
+    a trainer's detour does, and may consist of sets alone. Needs lr kept
+    (not skip_lr).
+
+    Tests: unit_tests [xui] guide bundle round trip and truncation, [local]
+    round trip of the real update, [codegen][patch] register sets. Quantum of
+    Solace built with the bundle opens the guide with no system update on
+    disk ("using the guide built into the title (2672 KiB)").
+
+    * Manage Game: install a title's DLC from this PC (RG-GDK-041)
+
+    Games & Apps gains Manage Game, on the console's Options scene: the
+    title's installed downloadable content (ticked) and content packages
+    (STFS, content type 2, this title's ID) found in the DLC folder beside the
+    executable or picked with Add Content from This PC (Windows file picker).
+    A installs a package with ContentManager::InstallContent off the UI
+    thread; the page shows the package's description and install status.
+
+    Checked with 007 Legends (GDK Release): a throwaway type-2 package in DLC
+    was listed, installed into the content folder with its header, and shown
+    as installed.
+
+ include/rex/ui/guide/code_patch_states.h  |   23 +
+ include/rex/ui/guide/guide_input.h        |   64 ++
+ include/rex/ui/guide/guide_layout.h       |   91 +++
+ include/rex/ui/guide/guide_notification.h |   63 ++
+ include/rex/ui/guide/xbox_guide.h         |  285 ++++++++
+ include/rex/ui/xui/renderer.h             |   48 ++
+ include/rex/ui/xui/runtime.h              |  195 ++++++
+ include/rex/ui/xui/system_update.h        |   15 +
+ src/ui/guide/guide_dlc.cpp                |  326 +++++++++
+ src/ui/guide/guide_input.cpp              |   95 +++
+ src/ui/guide/guide_notification.cpp       |  156 +++++
+ src/ui/guide/guide_settings.cpp           |  396 +++++++++++
+ src/ui/guide/xbox_guide.cpp               | 1035 +++++++++++++++++++++++++++++
+ src/ui/xui/renderer.cpp                   |  470 +++++++++++++
+ src/ui/xui/runtime.cpp                    |  727 ++++++++++++++++++++
+ src/ui/xui/system_update.cpp              |  126 +++-
+ tests/unit/ui/guide_input_test.cpp        |   95 +++
+ tests/unit/ui/xui_format_test.cpp         |  170 ++---
+ tests/unit/ui/xui_runtime_test.cpp        |  364 ++++++++++
+ tests/unit/ui/xui_test_data.h             |  136 ++++
+ 20 files changed, 4743 insertions(+), 137 deletions(-)
+
+commit 4954b8dd540c7ec5941082e8d46b1e6fabd824d8
+Author:     Furqan Agwan <19633375+furqanagwan@users.noreply.github.com>
+AuthorDate: Thu Oct 1 08:44:49 2026 +0100
+Commit:     GitHub <noreply@github.com>
+CommitDate: Thu Oct 1 08:44:49 2026 +0100
+
+    Read the console's own XUI scenes: XUIZ, XUIS, XUR v8 (RG-GDK-041 part 1) (#128)
+
+    The Xbox guide (#127) runs the dashboard's own scenes from the owner's
+    system update. This is the format layer:
+
+    - Package / ParseStringTable: XUIZ packages and XUIS string tables.
+    - ParseXur: XUR v8 element trees, shared and compound properties,
+      gradient stops, figure paths, timelines with compound property paths
+      and named frames. The declared object count and full DATA consumption
+      check the schema.
+    - schema.cpp: property order for the classes the guide, skin and
+      achievement scenes use (interoperability data only).
+      AccountManagementNavButton derives from GuideDashCommandNavButton.
+    - SystemUpdate: $SystemUpdate folder or su*_00000000 package through the
+      SDK's STFS device, $flash_*.xex resources (plain, basic or LZX), XUIZ
+      packages keyed module/resource.
+
+    ADR-011 records the design; docs/xbox-guide.md the format and what is
+    inferred. unit_tests [xui] covers every parser with synthetic data;
+    [local] decodes every non-Kinect guide scene from REXGLUE_SYSTEM_UPDATE.
+
+ include/rex/ui/xui/document.h      | 133 +++++++
+ include/rex/ui/xui/package.h       |  51 +++
+ include/rex/ui/xui/schema.h        |  56 +++
+ include/rex/ui/xui/system_update.h |  56 +++
+ src/ui/xui/package.cpp             | 143 ++++++++
+ src/ui/xui/schema.cpp              | 324 +++++++++++++++++
+ src/ui/xui/system_update.cpp       | 303 ++++++++++++++++
+ src/ui/xui/xur_reader.cpp          | 722 +++++++++++++++++++++++++++++++++++++
+ tests/unit/ui/xui_format_test.cpp  | 566 +++++++++++++++++++++++++++++
+ 9 files changed, 2354 insertions(+)

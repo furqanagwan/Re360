@@ -1,0 +1,23 @@
+name: Standalone XUI and Guide core
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build and test without ReXGlue
+        shell: pwsh
+        run: |
+          $vsWhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsInstall = & $vsWhere -latest -property installationPath
+          & "$vsInstall\Common7\Tools\Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          cmake -S . -B out/build -G "Ninja Multi-Config" -DCMAKE_CXX_COMPILER=clang++ -DXBOX_FETCH_DEPENDENCIES=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          foreach ($configuration in @('Debug', 'Release')) {
+            cmake --build out/build --config $configuration
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            ctest --test-dir out/build -C $configuration --output-on-failure --no-tests=error
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
