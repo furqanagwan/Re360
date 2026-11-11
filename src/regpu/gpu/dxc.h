@@ -1,7 +1,8 @@
 #pragma once
 // Translated shaders as DXIL, compiled with DXC (dxcompiler.dll and dxil.dll, which signs the output,
-// beside the game executable, else the system's). REGPU_DXIL=1 builds every translated shader this
-// way instead of with fxc: a pipeline takes either DXBC or DXIL for all its stages, never a mix.
+// beside the game executable, else the system's). With DXIL on, every translated shader is built
+// this way instead of with fxc: a pipeline takes either DXBC or DXIL for all its stages, never a mix.
+// REGPU_DXIL=1 or 0 turns it on or off; unset, it is on when a shader pack is beside the game.
 // A shader pack (ShaderPackDir) holds DXIL built ahead of time, by tools/regpu/xenos_dis --pack, under
 // the same key the shader cache uses.
 #include <cstdint>
@@ -14,7 +15,7 @@
 // The key of a translated shader's source, which names its bytecode in the shader cache and pack.
 uint64_t ShaderSourceKey(const std::string& hlsl, bool pixel);
 
-// REGPU_DXIL=1 and DXC loads.
+// DXIL on (REGPU_DXIL, else a shader pack beside the game) and DXC loads.
 bool UseDxil();
 bool DxcAvailable();
 
