@@ -3,9 +3,11 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <future>
 #include <vector>
 #include <rex/system/game_source.h>
+#include <rex/system/interfaces/graphics.h>
 #include <rex/ui/guide/file_browser.h>
 #include <rex/ui/guide/guide_list_page.h>
 #include <rex/ui/imgui_dialog.h>
@@ -123,22 +125,46 @@ class GameSourceDialog : public ImGuiDialog {
 // Setup's last step, before the game starts: the GPU prepares the shaders earlier runs stored.
 // Shown on the Guide's list page ("Preparing Shaders") when the Guide's assets are there, else as a
 // plain bar. Closes itself and calls `finished` once the GPU reports it is done.
+// The screen while shaders are prepared before the game starts: what is being done, how far it
+// is and roughly how long is left, a heartbeat so a long wait doesn't look like a hang, the
+// threads it uses (changed with left and right), and Start Now.
 class ShaderPreparationDialog : public ImGuiDialog {
  public:
-  using ProgressQuery = std::function<bool(uint32_t& done, uint32_t& total)>;
-  ShaderPreparationDialog(ImGuiDrawer* drawer, ProgressQuery progress,
-                          std::function<void()> finished, GameSourceVisualsProvider visuals = {});
+  using Status = system::IGraphicsSystem::ShaderPreparationStatus;
+  struct Controls {
+    std::function<bool(Status&)> status;  // false once preparation is over
+    std::function<void(uint32_t)> set_threads;
+    std::function<void()> start_now;
+  };
+  ShaderPreparationDialog(ImGuiDrawer* drawer, Controls controls, std::function<void()> finished,
+                          GameSourceVisualsProvider visuals = {}, LaunchPadSource pad_source = {});
   ~ShaderPreparationDialog() override;
 
  protected:
   void OnDraw(ImGuiIO& io) override;
 
  private:
-  ProgressQuery progress_;
+  enum Row : size_t { kProgress, kThreads, kStartNow, kRowCount };
+  void HandleInput(const LaunchPadState& pad);
+  void ChangeThreads(int direction);
+  void StartNow();
+
+  Controls controls_;
   std::function<void()> finished_;
   GameSourceVisualsProvider visuals_;
+  LaunchPadSource pad_source_;
+  LaunchPadState previous_pad_;
+  int previous_direction_[2] = {};
+  std::chrono::steady_clock::time_point next_repeat_[2];
   std::unique_ptr<GameSourceGuidePage> page_;
+  Status status_;
+  // Recent progress (seconds, done) for the estimate: the last 20 s's rate, steadier than the
+  // whole step's (its first items come from the driver's cache).
+  std::deque<std::pair<double, uint32_t>> samples_;
+  std::string sampled_step_;
+  size_t focus_ = kProgress;
   bool finished_called_ = false;
+  bool started_early_ = false;
 };
 class GameMediaRecoveryDialog : public ImGuiDialog {
  public:

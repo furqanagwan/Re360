@@ -74,6 +74,11 @@
 REXCVAR_DEFINE_BOOL(launch_menu, false, "UI/Window", "Show game settings before launching")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
+REXCVAR_DEFINE_INT32(shader_threads, 0, "GPU",
+                     "CPU threads preparing shaders and pipelines; 0 uses all but two. Changed on "
+                     "the Preparing Shaders screen")
+    .range(0, 64);
+
 REXCVAR_DEFINE_STRING(gpu_plugin, "", "GPU",
                       "GPU emulation plugin to load at startup (e.g. 'xenos'); empty loads 'xenos' "
                       "when it is next to the executable, 'none' disables GPU emulation")
@@ -1098,22 +1103,36 @@ void ReXApp::LaunchModule() {
     };
 
     uint32_t prepared = 0, to_prepare = 0;
+    if (graphics_system && REXCVAR_GET(shader_threads) > 0)
+      graphics_system->SetShaderPreparationThreads(uint32_t(REXCVAR_GET(shader_threads)));
     if (graphics_system && imgui_drawer_ &&
         graphics_system->GetShaderPreparation(prepared, to_prepare)) {
       REXLOG_INFO("Preparing shaders before the title starts");
       auto start = std::make_shared<decltype(start_title)>(std::move(start_title));
+      ui::ShaderPreparationDialog::Controls controls;
+      controls.status = [graphics_system](ui::ShaderPreparationDialog::Status& status) {
+        return graphics_system->GetShaderPreparationStatus(status);
+      };
+      controls.set_threads = [this, graphics_system](uint32_t threads) {
+        graphics_system->SetShaderPreparationThreads(threads);
+        // The default is saved as 0, so a later PC (or CPU) gets its own default.
+        const bool is_default = threads == graphics_system->DefaultShaderPreparationThreads();
+        rex::cvar::SetFlagByName("shader_threads", is_default ? "0" : std::to_string(threads));
+        rex::cvar::SaveConfig(config_path_);
+      };
+      controls.start_now = [graphics_system] {
+        REXLOG_INFO("Starting the title before shader preparation finished");
+        graphics_system->StartBeforeShadersPrepared();
+      };
       new ui::ShaderPreparationDialog(
-          imgui_drawer_.get(),
-          [graphics_system](uint32_t& done, uint32_t& total) {
-            return graphics_system->GetShaderPreparation(done, total);
-          },
+          imgui_drawer_.get(), std::move(controls),
           [this, start] {
             app_context().CallInUIThreadDeferred([this, start] {
               if (!shutting_down_.load(std::memory_order_acquire))
                 (*start)();
             });
           },
-          [this] { return GetGameSourceVisuals(); });
+          [this] { return GetGameSourceVisuals(); }, CreateHostPadSource());
       return;
     }
     start_title();

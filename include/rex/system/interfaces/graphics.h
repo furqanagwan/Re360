@@ -13,6 +13,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <string>
 
 #include <rex/system/xtypes.h>
 
@@ -49,6 +50,24 @@ class IGraphicsSystem {
     done = total = 0;
     return false;
   }
+  // What shader preparation is doing, for the preparation screen (GetShaderPreparation's count
+  // plus the step, the threads at it and a heartbeat).
+  struct ShaderPreparationStatus {
+    std::string step;
+    uint32_t done = 0, total = 0, working = 0;
+    uint32_t threads = 0, max_threads = 0;  // max_threads 0: not adjustable
+    double elapsed = 0, step_elapsed = 0, since_last_finished = 0;
+    double seconds_left = -1;  // below 0: not known yet
+  };
+  virtual bool GetShaderPreparationStatus(ShaderPreparationStatus& status) {
+    status = {};
+    return GetShaderPreparation(status.done, status.total);
+  }
+  // Threads preparing shaders; 0 is the default. Applies straight away.
+  virtual void SetShaderPreparationThreads(uint32_t threads) { (void)threads; }
+  virtual uint32_t DefaultShaderPreparationThreads() const { return 0; }
+  // Starts the game before preparation ends; the rest is prepared in the background.
+  virtual void StartBeforeShadersPrepared() {}
   virtual void FlushCaches() {}
 
   virtual void SetInterruptCallback(uint32_t callback, uint32_t user_data) {

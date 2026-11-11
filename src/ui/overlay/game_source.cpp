@@ -883,19 +883,101 @@ void GameSourceDialog::OnDraw(ImGuiIO& io) {
       "Xbox 360 disc's game partition.");
   ImGui::End();
 }
-ShaderPreparationDialog::ShaderPreparationDialog(ImGuiDrawer* drawer, ProgressQuery progress,
+ShaderPreparationDialog::ShaderPreparationDialog(ImGuiDrawer* drawer, Controls controls,
                                                  std::function<void()> finished,
-                                                 GameSourceVisualsProvider visuals)
+                                                 GameSourceVisualsProvider visuals,
+                                                 LaunchPadSource pad_source)
     : ImGuiDialog(drawer),
-      progress_(std::move(progress)),
+      controls_(std::move(controls)),
       finished_(std::move(finished)),
-      visuals_(std::move(visuals)) {}
+      visuals_(std::move(visuals)),
+      pad_source_(std::move(pad_source)) {}
 
-ShaderPreparationDialog::~ShaderPreparationDialog() = default;
+ShaderPreparationDialog::~ShaderPreparationDialog() {
+  if (pad_source_)
+    ReleaseLaunchPad(GetIO());
+}
+
+namespace {
+std::string PreparationDuration(double seconds) {
+  const int s = int(std::lround(std::max(seconds, 0.0)));
+  if (s < 60)
+    return s == 1 ? "1 second" : fmt::format("{} seconds", s);
+  return fmt::format("{} min {:02} s", s / 60, s % 60);
+}
+std::string Thousands(uint32_t value) {
+  std::string digits = std::to_string(value);
+  for (int at = int(digits.size()) - 3; at > 0; at -= 3)
+    digits.insert(size_t(at), ",");
+  return digits;
+}
+std::string PreparationTimeLeft(double seconds) {
+  if (seconds < 0)
+    return "Working out how long this will take.";
+  if (seconds < 60)
+    return "Less than a minute left.";
+  const int minutes = int(std::lround(seconds / 60.0));
+  return minutes == 1 ? "About a minute left." : fmt::format("About {} minutes left.", minutes);
+}
+}  // namespace
+
+void ShaderPreparationDialog::ChangeThreads(int direction) {
+  if (!direction || !status_.max_threads || !controls_.set_threads)
+    return;
+  const uint32_t threads =
+      uint32_t(std::clamp(int(status_.threads) + direction, 1, int(status_.max_threads)));
+  if (threads == status_.threads)
+    return;
+  status_.threads = threads;
+  controls_.set_threads(threads);
+}
+
+void ShaderPreparationDialog::StartNow() {
+  if (started_early_ || !controls_.start_now)
+    return;
+  started_early_ = true;
+  controls_.start_now();
+}
+
+void ShaderPreparationDialog::HandleInput(const LaunchPadState& pad) {
+  const bool activate = (pad.activate && !previous_pad_.activate) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                        ImGui::IsKeyPressed(ImGuiKey_Space, false);
+  previous_pad_ = pad;
+  // The stick or d-pad steps once, then repeats while held, as in the Guide.
+  auto repeat = [this](int axis, int direction) {
+    const auto now = std::chrono::steady_clock::now();
+    if (direction != previous_direction_[axis]) {
+      previous_direction_[axis] = direction;
+      next_repeat_[axis] = now + std::chrono::milliseconds(400);
+      return direction;
+    }
+    if (direction && now >= next_repeat_[axis]) {
+      next_repeat_[axis] = now + std::chrono::milliseconds(110);
+      return direction;
+    }
+    return 0;
+  };
+  int vertical = repeat(0, pad.y > 0.5f ? -1 : pad.y < -0.5f ? 1 : 0);
+  int horizontal = repeat(1, pad.x > 0.5f ? 1 : pad.x < -0.5f ? -1 : 0);
+  if (ImGui::IsKeyPressed(ImGuiKey_UpArrow, true))
+    vertical = -1;
+  else if (ImGui::IsKeyPressed(ImGuiKey_DownArrow, true))
+    vertical = 1;
+  if (ImGui::IsKeyPressed(ImGuiKey_LeftArrow, true))
+    horizontal = -1;
+  else if (ImGui::IsKeyPressed(ImGuiKey_RightArrow, true))
+    horizontal = 1;
+  if (vertical)
+    focus_ = size_t(std::clamp(int(focus_) + vertical, 0, int(kRowCount) - 1));
+  if (focus_ == kThreads)
+    ChangeThreads(horizontal);
+  if (activate && focus_ == kStartNow)
+    StartNow();
+}
 
 void ShaderPreparationDialog::OnDraw(ImGuiIO& io) {
-  uint32_t done = 0, total = 0;
-  if (!progress_ || !progress_(done, total)) {
+  if (!controls_.status || !controls_.status(status_)) {
     if (!finished_called_) {
       finished_called_ = true;
       if (finished_)
@@ -904,12 +986,69 @@ void ShaderPreparationDialog::OnDraw(ImGuiIO& io) {
     }
     return;
   }
+  HandleInput(PollLaunchPad(io, pad_source_, false));
   if (!page_ && visuals_) {
     if (auto visuals = visuals_(); visuals && !visuals->loading)
       page_ = GameSourceGuidePage::Create(std::move(*visuals));
   }
   const unsigned percent =
-      total ? unsigned(std::min(100.0, double(done) / double(total) * 100.0)) : 0;
+      status_.total ? unsigned(std::min(100.0, double(status_.done) / status_.total * 100.0)) : 0;
+  if (status_.step != sampled_step_) {
+    sampled_step_ = status_.step;
+    samples_.clear();
+  }
+  samples_.emplace_back(status_.step_elapsed, status_.done);
+  while (samples_.size() > 2 && samples_.front().first < status_.step_elapsed - 20.0)
+    samples_.pop_front();
+  if (const double span = samples_.back().first - samples_.front().first;
+      span >= 10.0 && status_.done < status_.total) {
+    const uint32_t finished = samples_.back().second - samples_.front().second;
+    if (finished)
+      status_.seconds_left = double(status_.total - status_.done) * span / finished;
+  }
+
+  // Progress in plain words, with a heartbeat (how long since something last finished) so a
+  // long wait on one large shader doesn't look like a hang.
+  std::string progress = status_.step.empty() ? "Starting." : status_.step + ".";
+  if (status_.total)
+    progress += fmt::format("\r\n{} of {} done ({}%).", Thousands(status_.done),
+                            Thousands(status_.total), percent);
+  if (started_early_) {
+    progress += "\r\nStarting the game; the rest finishes in the background.";
+  } else {
+    if (status_.working)
+      progress += fmt::format("\r\n{} being built at once.", status_.working);
+    if (status_.since_last_finished >= 20)
+      progress += fmt::format(
+          "\r\nStill working: a large shader can take up to a minute ({} since the last one "
+          "finished).",
+          PreparationDuration(status_.since_last_finished));
+    else if (status_.total && status_.since_last_finished < 3)
+      progress += "\r\nStill working: the last one finished just now.";
+    else if (status_.total)
+      progress += fmt::format("\r\nStill working: the last one finished {} ago.",
+                              PreparationDuration(status_.since_last_finished));
+    progress += "\r\n" + PreparationTimeLeft(status_.seconds_left);
+  }
+  progress += fmt::format(
+      "\r\n\r\nPreparing for {}. Getting the game's graphics ready for this PC happens once, and "
+      "again after an update.",
+      PreparationDuration(status_.elapsed));
+
+  const std::string threads_value =
+      status_.max_threads ? fmt::format("{} of {}", status_.threads, status_.max_threads) : "Auto";
+  const std::string threads_details =
+      status_.max_threads
+          ? fmt::format(
+                "This PC has {} CPU threads; {} are preparing shaders.\r\n\r\nUse left and right "
+                "to change it. More threads finish sooner; fewer leave the PC more responsive "
+                "meanwhile. The choice is kept for next time.",
+                status_.max_threads, status_.threads)
+          : "The graphics plugin chooses the threads itself.";
+  const std::string start_details =
+      "Play now and finish preparing in the background.\r\n\r\nUntil it is done, the game can "
+      "stutter briefly the first time it shows something new.";
+
   const ImGuiViewport* viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(viewport->Pos);
   ImGui::SetNextWindowSize(viewport->Size);
@@ -919,25 +1058,39 @@ void ShaderPreparationDialog::OnDraw(ImGuiIO& io) {
   ImGui::GetWindowDrawList()->AddRectFilled(
       viewport->Pos, ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
       kGuideDim);
-  std::string details =
-      "Getting the game's graphics ready for this PC. This happens once, and again after an "
-      "update.";
-  if (total)
-    details += fmt::format("\r\n\r\n{} of {} prepared.", done, total);
   if (page_) {
     page_->page().Show(
         "Preparing Shaders",
-        {{"Graphics", total ? fmt::format("{}%", percent) : "Starting", std::move(details)}}, 0, "",
-        "");
-    page_->Draw(io, false);
+        {{"Progress", status_.total ? fmt::format("{}%", percent) : "Starting", progress},
+         {"CPU Threads", threads_value, threads_details},
+         {"Start Now", started_early_ ? "Starting" : "", start_details}},
+        focus_, focus_ == kStartNow ? "Start Now" : "", "");
+    if (const auto chosen = page_->Draw(io, true)) {
+      focus_ = *chosen;
+      if (*chosen == kStartNow)
+        StartNow();
+    }
   } else {
-    const ImVec2 size(std::min(viewport->Size.x * 0.5f, 900.0f), 0);
-    ImGui::SetCursorScreenPos(ImVec2(viewport->Pos.x + (viewport->Size.x - size.x) * 0.5f,
-                                     viewport->Pos.y + viewport->Size.y * 0.45f));
+    const float width = std::min(viewport->Size.x * 0.5f, 900.0f);
+    ImGui::SetCursorScreenPos(ImVec2(viewport->Pos.x + (viewport->Size.x - width) * 0.5f,
+                                     viewport->Pos.y + viewport->Size.y * 0.3f));
     ImGui::BeginGroup();
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + width);
     ImGui::TextUnformatted("Preparing shaders");
-    ImGui::ProgressBar(total ? float(done) / float(total) : 0.0f, ImVec2(size.x, 0));
-    ImGui::TextUnformatted("Getting the game's graphics ready for this PC.");
+    ImGui::ProgressBar(status_.total ? float(status_.done) / float(status_.total) : 0.0f,
+                       ImVec2(width, 0));
+    std::string plain = progress;
+    plain.erase(std::remove(plain.begin(), plain.end(), '\r'), plain.end());
+    ImGui::TextUnformatted(plain.c_str());
+    if (status_.max_threads) {
+      int threads = int(status_.threads);
+      ImGui::SetNextItemWidth(width * 0.5f);
+      if (ImGui::SliderInt("CPU threads", &threads, 1, int(status_.max_threads)))
+        ChangeThreads(threads - int(status_.threads));
+    }
+    if (!started_early_ && ImGui::Button("Start now"))
+      StartNow();
+    ImGui::PopTextWrapPos();
     ImGui::EndGroup();
   }
   ImGui::End();
