@@ -37,6 +37,11 @@ struct Config
     // A window the host already owns (an HWND): ReGPU presents into it instead of opening its own.
     // The host then handles closing, resizing and fullscreen; windowTitle and fullscreen are unused.
     void* hostWindow = nullptr;
+    // A D3D12 device and direct queue the host already has (ID3D12Device*, ID3D12CommandQueue*): ReGPU
+    // renders on them instead of creating its own, so its frames can go to the host's presenter on the
+    // same queue (Host::presentFrame). Set both or neither.
+    void* hostDevice = nullptr;
+    void* hostQueue = nullptr;
     // Upload ring per frame (constants, vertices, textures), in MB; 0 is ReGPU's default (64 with
     // direct fetch). About 11 KB a draw goes to constants alone: titles with thousands of draws need
     // more, or their last draws are dropped. REGPU_RING_MB overrides it.
@@ -133,6 +138,10 @@ struct Host
     // on the console hold whatever another view of the same EDRAM left there (a depth surface, say), and
     // here hold the colour surface's previous contents.
     bool (*clearBeforeDraw)(uint64_t vs, uint64_t ps, uint32_t vsTag, uint32_t psTag, float colour[4]) = nullptr;
+    // Optional: the host presents. Each finished frame (graded, RGBA8, width x height) is offered here
+    // instead of to ReGPU's own swap chain, which is then never created; the host calls CopyFrameTo
+    // from inside this call to get it. Needs Config::hostDevice and hostQueue. Renderer's thread.
+    void (*presentFrame)(uint32_t width, uint32_t height) = nullptr;
     // Optional: each frame the game finishes (VdSwap), on the renderer's thread.
     void (*onSwap)(uint64_t frame) = nullptr;
     // Optional: a character typed into the game window (WM_CHAR), e.g. for cheat codes.
@@ -176,6 +185,12 @@ void LogCrashContext();
 // The game draws its 3D view wider than 16:9 itself (a widescreen patch): ReGPU then leaves its
 // field of view alone instead of widening it (Hor+) at wide resolutions.
 void SetGameWidescreen(bool on);
+// Prepares, on a thread of its own, the shaders and pipelines earlier runs stored (Config::userDir), which
+// ReGPU otherwise prepares at the first frame with the picture held: for a host's setup screen before the
+// game starts. Call after Start, before the game draws.
+void PrepareShaders();
+// Whether PrepareShaders is still at work; done and total count the stored pipelines.
+bool ShaderPreparation(uint32_t& done, uint32_t& total);
 // Call when the game has stopped drawing (the window is closing): flushes the shader and pipeline caches.
 void SaveCaches();
 // The output (drawing) resolution while the game runs: Config's width and height at start. Taken at
@@ -194,6 +209,10 @@ void SetFullscreen(bool on);
 // next frame with the host GPU idle; the surfaces are rebuilt and every pipeline is built again for the
 // new count (a hitch while they compile). Lowered to what the device supports.
 void SetMsaa(uint32_t samples);
+// From inside Host::presentFrame: records and submits, on the queue, a copy of the frame being offered
+// into the host's texture (an ID3D12Resource* of the frame's size that allows unordered access, in the
+// PIXEL_SHADER_RESOURCE state, left in it). False if it could not.
+bool CopyFrameTo(void* d3d12Resource);
 // Changes the frame cap and vsync while the game runs (a host's options screen); Config's maxFps
 // and vsync are the starting values.
 void SetFrameLimit(uint32_t maxFps, bool vsync);

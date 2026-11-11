@@ -10,7 +10,8 @@
  *
  * @remarks     Two plugins exist: rexgpu-xenos (the default and the reference)
  *              and rexgpu-regpu (ReGPU, src/regpu). The factory carries an ABI
- *              version; version 2 added SetHostWindow and FlushCaches.
+ *              version; version 2 added SetHostWindow and FlushCaches, version 3
+ *              GetShaderPreparation.
  */
 
 #pragma once
@@ -30,7 +31,7 @@
 
 namespace rex::system {
 
-inline constexpr uint32_t kGpuPluginAbiVersion = 2;
+inline constexpr uint32_t kGpuPluginAbiVersion = 3;
 
 inline constexpr const char* kGpuCreateSymbol = "rex_gpu_create";
 inline constexpr const char* kGpuAbiVersionSymbol = "rex_gpu_abi_version";

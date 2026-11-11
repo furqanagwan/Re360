@@ -19,6 +19,17 @@ and checked against Xenia and a real console. Read this before changing `src/reg
 
 ## EDRAM surfaces
 
+- **A depth-only fill is a colour clear.** A rectangle drawn with depth-only EDRAM mode, always passing,
+  writing depth and stencil at the colour surface's own base leaves the 32 bits it wrote there: depth in
+  the top 24, the stencil reference below. D3D clears colour surfaces this way, often through a 4x view at
+  half the pitch. ReGPU fills the colour surface with those bits as 8888 (`REGPU_NO_ALIASED_DEPTH_FILL=1`
+  turns it off). Blood Stone clears its light buffer so; missed, its floors kept the normals drawn there and
+  lit green.
+- **A resolve's rectangle is in its view's pixels.** Through a 4x view of a 1x surface, a view pixel is
+  2x2 of the surface's, and sample select 4-6 averages them. D3D shrinks a 1280x720 surface to 640x360 that
+  way. Copied one to one, Blood Stone's depth-of-field source held the scene's top-left quarter, laid over
+  the picture as a ghost (`REGPU_NO_RESOLVE_VIEW_SCALE=1` turns the scaling off).
+
 - **Render targets alias.** Titles draw into the same EDRAM through different views: another MSAA mode,
   another pitch, a 1x view of a 4x surface. A clear or stencil write through one view must reach what the
   other view draws (the paint-style composites in the first port only worked once those views mapped to

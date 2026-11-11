@@ -23,6 +23,9 @@
 #include <rex/system/thread_state.h>
 #include <rex/system/xmemory.h>
 #include <rex/system/xvideo.h>
+#include <rex/ui/d3d12/d3d12_presenter.h>
+#include <rex/ui/d3d12/d3d12_provider.h>
+#include <rex/ui/windowed_app_context.h>
 
 #include <regpu/driver.h>
 #include <regpu/regpu.h>
@@ -55,11 +58,32 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
   }
 
   X_STATUS SetupPresentation(ui::WindowedAppContext* app_context) override {
-    (void)app_context;
+    if (presenter_) {
+      return X_STATUS_SUCCESS;
+    }
+    if (!provider_) {
+      provider_ = ui::d3d12::D3D12Provider::Create();
+      if (!provider_) {
+        REXLOG_ERROR("rexgpu-regpu: no Direct3D 12 device");
+        return X_STATUS_UNSUCCESSFUL;
+      }
+    }
+    auto create = [this] { presenter_ = provider_->CreatePresenter(); };
+    if (app_context) {
+      app_context->CallInUIThreadSynchronous(create);
+    } else {
+      create();
+    }
+    if (!presenter_) {
+      REXLOG_ERROR("rexgpu-regpu: the presenter could not be created");
+      return X_STATUS_UNSUCCESSFUL;
+    }
     return X_STATUS_SUCCESS;
   }
 
-  bool has_presentation() const override { return host_window_ != nullptr; }
+  bool has_presentation() const override { return presenter_ != nullptr; }
+  ui::GraphicsProvider* provider() const override { return provider_.get(); }
+  ui::Presenter* presenter() const override { return presenter_.get(); }
 
   void SetHostWindow(void* native_window_handle) override { host_window_ = native_window_handle; }
 
@@ -73,6 +97,9 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
     kernel_state_ = kernel_state;
     memory_ = function_dispatcher->memory();
     active_system = this;
+    if (!provider_) {
+      provider_ = ui::d3d12::D3D12Provider::Create();
+    }
 
     FillConfig();
     FillHost();
@@ -101,18 +128,37 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
     regpu::driver::EnableReadPointerWriteBack(ptr, block_size_log2);
   }
 
+  void InitializeShaderStorage(const std::filesystem::path& cache_root, uint32_t title_id,
+                               bool blocking) override {
+    (void)cache_root;
+    (void)title_id;
+    (void)blocking;
+    regpu::PrepareShaders();
+  }
+
+  bool GetShaderPreparation(uint32_t& done, uint32_t& total) override {
+    return regpu::ShaderPreparation(done, total);
+  }
+
   void FlushCaches() override {
     if (active_system == this) {
       regpu::SaveCaches();
     }
   }
 
-  void Shutdown() override { FlushCaches(); }
+  void Shutdown() override {
+    FlushCaches();
+    regpu::GetHost().presentFrame = nullptr;
+  }
 
  private:
   void FillConfig() {
     regpu::Config& config = regpu::GetConfig();
     config.hostWindow = host_window_;
+    if (provider_) {
+      config.hostDevice = provider_->GetDevice();
+      config.hostQueue = provider_->GetDirectQueue();
+    }
     config.width = kFallbackWidth;
     config.height = kFallbackHeight;
     RECT client{};
@@ -139,6 +185,24 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
     host.guestCall = CallGuest;
     host.interruptLockAcquire = EnterInterruptCpu;
     host.interruptLockRelease = LeaveInterruptCpu;
+    if (presenter_) {
+      host.presentFrame = PresentFrame;
+    }
+  }
+
+  static void PresentFrame(uint32_t width, uint32_t height) {
+    ui::Presenter* presenter = active_system ? active_system->presenter_.get() : nullptr;
+    if (!presenter) {
+      return;
+    }
+    presenter->RefreshGuestOutput(width, height, width, height,
+                                  [](ui::Presenter::GuestOutputRefreshContext& context) {
+                                    context.SetIs8bpc(true);
+                                    auto& d3d12_context = static_cast<
+                                        ui::d3d12::D3D12Presenter::D3D12GuestOutputRefreshContext&>(
+                                        context);
+                                    return regpu::CopyFrameTo(d3d12_context.resource_uav_capable());
+                                  });
   }
 
   static uint32_t AllocateGuestMemory(bool physical, uint32_t size, uint32_t alignment) {
@@ -202,6 +266,8 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
   system::KernelState* kernel_state_ = nullptr;
   memory::Memory* memory_ = nullptr;
   void* host_window_ = nullptr;
+  std::unique_ptr<ui::d3d12::D3D12Provider> provider_;
+  std::unique_ptr<ui::Presenter> presenter_;
   std::mutex threads_mutex_;
   std::vector<system::object_ref<system::XHostThread>> threads_;
 };

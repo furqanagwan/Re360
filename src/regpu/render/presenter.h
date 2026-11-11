@@ -33,5 +33,11 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
 void PresenterPresent();
 // The swap chain to a new output size (host GPU idle; renderer.cpp ApplyOutputSize).
 void PresenterResize(uint32_t width, uint32_t height);
+// The host presents ReGPU's frames (Host::presentFrame): no window or swap chain here.
+bool HostPresents();
+// Host presentation (renderer.cpp): PresenterRecordCopy copies the frame into ReGPU's hand-off texture
+// on the caller's list; PresenterPresent, once that list is submitted, offers it to the host.
+bool RendererRecordHandoff(ID3D12GraphicsCommandList* list, ID3D12Resource* src);
+void RendererHandOff();
 // Called by the renderer: the presenter stops drawing its own frames.
 void PresenterUseRenderer();

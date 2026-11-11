@@ -964,6 +964,9 @@ bool ReXApp::SetupPresentation() {
   window_->Open();
 
   auto* graphics_system = config_.graphics.get();
+  if (graphics_system) {
+    graphics_system->SetHostWindow(window_->GetNativeWindowHandle());
+  }
   if (graphics_system && graphics_system->presenter()) {
     auto* presenter = graphics_system->presenter();
     auto* provider = graphics_system->provider();
@@ -975,9 +978,7 @@ bool ReXApp::SetupPresentation() {
       }
     }
     window_->SetPresenter(presenter);
-  } else if (graphics_system) {
-    graphics_system->SetHostWindow(window_->GetNativeWindowHandle());
-  } else {
+  } else if (!graphics_system) {
     immediate_drawer_ = OnCreateImmediateDrawer();
     if (immediate_drawer_) {
       SetupOverlays(nullptr, immediate_drawer_.get());
@@ -1081,18 +1082,41 @@ void ReXApp::LaunchModule() {
       }
     }
 
-    OnPostLaunchModule(main_thread.get());
-    StartGuidePoller();
-    main_thread->Resume();
+    auto start_title = [this, main_thread = std::move(main_thread)]() mutable {
+      OnPostLaunchModule(main_thread.get());
+      StartGuidePoller();
+      main_thread->Resume();
 
-    module_thread_ = std::thread([this, main_thread = std::move(main_thread)]() mutable {
-      main_thread->Wait(0, 0, 0, nullptr);
-      OnGuestThreadExit(main_thread.get());
-      REXLOG_INFO("Execution complete");
-      if (!shutting_down_.load(std::memory_order_acquire)) {
-        app_context().CallInUIThread([this]() { app_context().QuitFromUIThread(); });
-      }
-    });
+      module_thread_ = std::thread([this, main_thread = std::move(main_thread)]() mutable {
+        main_thread->Wait(0, 0, 0, nullptr);
+        OnGuestThreadExit(main_thread.get());
+        REXLOG_INFO("Execution complete");
+        if (!shutting_down_.load(std::memory_order_acquire)) {
+          app_context().CallInUIThread([this]() { app_context().QuitFromUIThread(); });
+        }
+      });
+    };
+
+    uint32_t prepared = 0, to_prepare = 0;
+    if (graphics_system && imgui_drawer_ &&
+        graphics_system->GetShaderPreparation(prepared, to_prepare)) {
+      REXLOG_INFO("Preparing shaders before the title starts");
+      auto start = std::make_shared<decltype(start_title)>(std::move(start_title));
+      new ui::ShaderPreparationDialog(
+          imgui_drawer_.get(),
+          [graphics_system](uint32_t& done, uint32_t& total) {
+            return graphics_system->GetShaderPreparation(done, total);
+          },
+          [this, start] {
+            app_context().CallInUIThreadDeferred([this, start] {
+              if (!shutting_down_.load(std::memory_order_acquire))
+                (*start)();
+            });
+          },
+          [this] { return GetGameSourceVisuals(); });
+      return;
+    }
+    start_title();
   });
 }
 

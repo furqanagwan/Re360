@@ -120,6 +120,26 @@ class GameSourceDialog : public ImGuiDialog {
   std::unique_ptr<GameSourceConsoleDownloads> console_downloads_;
   std::function<void(guide::GuideActivity)> activity_completed_;
 };
+// Setup's last step, before the game starts: the GPU prepares the shaders earlier runs stored.
+// Shown on the Guide's list page ("Preparing Shaders") when the Guide's assets are there, else as a
+// plain bar. Closes itself and calls `finished` once the GPU reports it is done.
+class ShaderPreparationDialog : public ImGuiDialog {
+ public:
+  using ProgressQuery = std::function<bool(uint32_t& done, uint32_t& total)>;
+  ShaderPreparationDialog(ImGuiDrawer* drawer, ProgressQuery progress,
+                          std::function<void()> finished, GameSourceVisualsProvider visuals = {});
+  ~ShaderPreparationDialog() override;
+
+ protected:
+  void OnDraw(ImGuiIO& io) override;
+
+ private:
+  ProgressQuery progress_;
+  std::function<void()> finished_;
+  GameSourceVisualsProvider visuals_;
+  std::unique_ptr<GameSourceGuidePage> page_;
+  bool finished_called_ = false;
+};
 class GameMediaRecoveryDialog : public ImGuiDialog {
  public:
   GameMediaRecoveryDialog(ImGuiDrawer* drawer, bool optical, std::string error,

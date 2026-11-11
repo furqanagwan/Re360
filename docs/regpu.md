@@ -14,10 +14,13 @@ What is proven here, on a real Direct3D 12 device through the plugin interface:
   read back from the presented picture with the colour it drew. The same at
   1024x600 and 1152x640, the sizes some titles render at.
 
-**It has not been run on a game inside Re360 yet.** Before this merge it
-rendered Forza Motorsport 2 end to end as a XenonRecomp port; getting the three
-007 titles to gameplay on it is the next gate in the
-[native GPU plan](native-gpu-plan.md).
+James Bond 007: Blood Stone runs on it in Re360 (2026-11-11, NVIDIA RTX 5080
+Laptop GPU): title screen, menus, the first levels and the Xbox Guide over the
+game, fullscreen at 3840x2160. Its first level rendered with green floors and a
+ghosted picture until two EDRAM fixes (aliased depth fill, resolves through
+another MSAA view; see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
+Quantum of Solace and 007 Legends have not been run on it yet; that is the rest
+of the gate in the [native GPU plan](native-gpu-plan.md).
 
 ## Use it
 
@@ -46,32 +49,43 @@ load them from the cache.
 The plugin gives ReGPU what it asks of a host: guest memory, guest allocations,
 threads that can run guest code, and the graphics interrupt through the
 function dispatcher. It routes the guest's GPU register range (`0x7FC80000`) to
-ReGPU's register file, and presents into the game window the runtime already
-owns. The kernel's video exports (`src/kernel/xboxkrnl/xboxkrnl_video.cpp`) are
+ReGPU's register file.
+
+ReGPU renders on the runtime's Direct3D 12 device and queue and hands each
+finished frame to the runtime's presenter (`Host::presentFrame` and
+`regpu::CopyFrameTo`), as the `xenos` plugin does. So the window, fullscreen,
+the Xbox Guide, notifications and the other overlays are the runtime's and work
+the same on both plugins.
+
+## Shaders at setup
+
+Before the game starts, the runtime asks the GPU plugin to prepare its shaders
+(`InitializeShaderStorage`). ReGPU compiles every shader and pipeline earlier
+runs stored and reports progress (`GetShaderPreparation`), which the runtime
+shows on the Guide's list page as **Preparing Shaders**, then starts the game.
+After an update that changes the translator, or with a cleared cache, this is
+where the rebuild happens instead of during play (Blood Stone: 465 shaders,
+755 pipelines, 12 s). A first-ever run has nothing stored and shows no page.
+
+Scanning the game's files for shaders ahead of the first run does not work
+for every title: Blood Stone keeps its shaders compressed in
+`cache/shaders-speed.pak`, and a scan of its 6.6 GB of files finds none. The kernel's video exports (`src/kernel/xboxkrnl/xboxkrnl_video.cpp`) are
 shared by both plugins; ReGPU's own copies were removed in the merge.
 
 ## What it does not do yet
 
-- **Guide and overlays.** ReGPU presents with its own swap chain, so the Xbox
-  Guide, achievement toasts and the debug overlays, which draw through the
-  runtime's presenter, do not appear with `gpu_plugin=regpu`.
-  That includes the first-run game picker and the launch menu: start with
-  `--game_data_root=<folder> --launch_menu=false` (or a saved game source), and
-  quit with Alt+F4.
-- **Runtime settings.** `vsync`, `resolution_scale` and the other GPU cvars
-  belong to the `xenos` plugin. ReGPU starts at the game window's size with
-  vsync on and a 60 fps cap, and takes its switches from `REGPU_*` environment
-  variables.
+- **Runtime settings.** `resolution_scale` and the other GPU cvars belong to
+  the `xenos` plugin. ReGPU renders at the game window's size when the game
+  starts and takes its switches from `REGPU_*` environment variables.
 - **Frame size.** The renderer starts at 1280x720 and follows the front buffer
   size the title's first swap reports, so a title that renders 1024x600 shows
   its first frame wrong and the rest right. Front buffers above 1280x720 are
   untested (see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
 - **No tessellation; memexport writes are dropped.**
 - **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`), not
-  at build time.
+  at build time: at setup when earlier runs stored them, else during play.
 - **One renderer per process, and no teardown.** Its threads run until the
-  process exits, which is how titles exit today. Because the swap chain is
-  still alive then, DXGI ends the process with exit code `0x87A` instead of 0.
+  process exits, which is how titles exit today.
 - **Its own support code.** ReGPU still carries its own logger, PNG writer,
   live switches and D3D12 device setup instead of the runtime's. They are
   small, and replacing them is safe only once a game runs on it here.

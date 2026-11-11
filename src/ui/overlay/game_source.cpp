@@ -883,6 +883,66 @@ void GameSourceDialog::OnDraw(ImGuiIO& io) {
       "Xbox 360 disc's game partition.");
   ImGui::End();
 }
+ShaderPreparationDialog::ShaderPreparationDialog(ImGuiDrawer* drawer, ProgressQuery progress,
+                                                 std::function<void()> finished,
+                                                 GameSourceVisualsProvider visuals)
+    : ImGuiDialog(drawer),
+      progress_(std::move(progress)),
+      finished_(std::move(finished)),
+      visuals_(std::move(visuals)) {}
+
+ShaderPreparationDialog::~ShaderPreparationDialog() = default;
+
+void ShaderPreparationDialog::OnDraw(ImGuiIO& io) {
+  uint32_t done = 0, total = 0;
+  if (!progress_ || !progress_(done, total)) {
+    if (!finished_called_) {
+      finished_called_ = true;
+      if (finished_)
+        finished_();
+      Close();
+    }
+    return;
+  }
+  if (!page_ && visuals_) {
+    if (auto visuals = visuals_(); visuals && !visuals->loading)
+      page_ = GameSourceGuidePage::Create(std::move(*visuals));
+  }
+  const unsigned percent =
+      total ? unsigned(std::min(100.0, double(done) / double(total) * 100.0)) : 0;
+  const ImGuiViewport* viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(viewport->Pos);
+  ImGui::SetNextWindowSize(viewport->Size);
+  constexpr ImGuiWindowFlags kFlags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+                                      ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoNav;
+  ImGui::Begin("##ShaderPreparation", nullptr, kFlags);
+  ImGui::GetWindowDrawList()->AddRectFilled(
+      viewport->Pos, ImVec2(viewport->Pos.x + viewport->Size.x, viewport->Pos.y + viewport->Size.y),
+      kGuideDim);
+  std::string details =
+      "Getting the game's graphics ready for this PC. This happens once, and again after an "
+      "update.";
+  if (total)
+    details += fmt::format("\r\n\r\n{} of {} prepared.", done, total);
+  if (page_) {
+    page_->page().Show(
+        "Preparing Shaders",
+        {{"Graphics", total ? fmt::format("{}%", percent) : "Starting", std::move(details)}}, 0, "",
+        "");
+    page_->Draw(io, false);
+  } else {
+    const ImVec2 size(std::min(viewport->Size.x * 0.5f, 900.0f), 0);
+    ImGui::SetCursorScreenPos(ImVec2(viewport->Pos.x + (viewport->Size.x - size.x) * 0.5f,
+                                     viewport->Pos.y + viewport->Size.y * 0.45f));
+    ImGui::BeginGroup();
+    ImGui::TextUnformatted("Preparing shaders");
+    ImGui::ProgressBar(total ? float(done) / float(total) : 0.0f, ImVec2(size.x, 0));
+    ImGui::TextUnformatted("Getting the game's graphics ready for this PC.");
+    ImGui::EndGroup();
+  }
+  ImGui::End();
+}
+
 void GameSourceDialog::OnClose() {
   if (completed_)
     completed_(selected_);

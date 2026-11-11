@@ -8154,6 +8154,196 @@ bool RendererCompileIdle()
     return g_stats.busy.load() == 0 && !warming && nowMs - g_stats.lastColdMs.load() > 2000;
 }
 
+// Host presentation (Host::presentFrame) ------------------------------------------------------------
+// The frame is copied into a texture of ReGPU's own on the frame's list (the source's state is the
+// caller's to restore), then offered to the host once that list is submitted. The host's texture is
+// another format (its presenter's), so CopyFrameTo converts with a compute pass, submitted on the same
+// queue: it runs after the frame and before the next one writes the hand-off texture again.
+namespace handoff
+{
+constexpr UINT kSlots = 4;
+ComPtr<ID3D12Resource> g_frame; // R8G8B8A8, PIXEL_SHADER_RESOURCE | NON_PIXEL_SHADER_RESOURCE between frames
+UINT g_width = 0, g_height = 0;
+bool g_ready = false; // a frame was copied since the last hand-off
+ComPtr<ID3D12RootSignature> g_root;
+ComPtr<ID3D12PipelineState> g_pso;
+ComPtr<ID3D12DescriptorHeap> g_heap;
+UINT g_stride = 0;
+ComPtr<ID3D12CommandAllocator> g_allocators[kSlots];
+ComPtr<ID3D12GraphicsCommandList> g_list;
+UINT64 g_fences[kSlots] = {};
+UINT g_next = 0;
+constexpr D3D12_RESOURCE_STATES kIdle = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+
+bool EnsureCopyPipeline()
+{
+    if (g_pso)
+        return true;
+    static bool failed = false;
+    if (failed || !g_r.device)
+        return false;
+    failed = true;
+    static const char kSource[] = R"(
+Texture2D<float4> src : register(t0);
+RWTexture2D<float4> dst : register(u0);
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID)
+{
+    uint w, h;
+    dst.GetDimensions(w, h);
+    if (id.x < w && id.y < h)
+        dst[id.xy] = float4(src.Load(int3(id.xy, 0)).rgb, 1.0);
+}
+)";
+    ComPtr<ID3DBlob> code, error;
+    if (FAILED(D3DCompile(kSource, sizeof(kSource) - 1, nullptr, nullptr, nullptr, "main", "cs_5_0", 0, 0, &code, &error)))
+    {
+        Log("handoff: the copy shader did not compile: %s", error ? static_cast<const char*>(error->GetBufferPointer()) : "?");
+        return false;
+    }
+    D3D12_DESCRIPTOR_RANGE ranges[2]{};
+    ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    ranges[0].NumDescriptors = 1;
+    ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    ranges[1].NumDescriptors = 1;
+    ranges[1].OffsetInDescriptorsFromTableStart = 1;
+    D3D12_ROOT_PARAMETER param{};
+    param.ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    param.DescriptorTable.NumDescriptorRanges = 2;
+    param.DescriptorTable.pDescriptorRanges = ranges;
+    D3D12_ROOT_SIGNATURE_DESC rs{};
+    rs.NumParameters = 1;
+    rs.pParameters = &param;
+    ComPtr<ID3DBlob> blob;
+    if (FAILED(D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error)) ||
+        FAILED(g_r.device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&g_root))))
+        return false;
+    D3D12_COMPUTE_PIPELINE_STATE_DESC pd{};
+    pd.pRootSignature = g_root.Get();
+    pd.CS = { code->GetBufferPointer(), code->GetBufferSize() };
+    if (FAILED(g_r.device->CreateComputePipelineState(&pd, IID_PPV_ARGS(&g_pso))))
+        return false;
+    D3D12_DESCRIPTOR_HEAP_DESC hd{};
+    hd.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    hd.NumDescriptors = kSlots * 2;
+    hd.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    if (FAILED(g_r.device->CreateDescriptorHeap(&hd, IID_PPV_ARGS(&g_heap))))
+        return false;
+    g_stride = g_r.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    for (auto& a : g_allocators)
+        if (FAILED(g_r.device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&a))))
+            return false;
+    if (FAILED(g_r.device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, g_allocators[0].Get(), nullptr, IID_PPV_ARGS(&g_list))))
+        return false;
+    g_list->Close();
+    failed = false;
+    return true;
+}
+} // namespace handoff
+
+bool RendererRecordHandoff(ID3D12GraphicsCommandList* list, ID3D12Resource* src)
+{
+    using namespace handoff;
+    const D3D12_RESOURCE_DESC sd = src->GetDesc();
+    if (sd.Format != DXGI_FORMAT_R8G8B8A8_UNORM && sd.Format != DXGI_FORMAT_R8G8B8A8_TYPELESS)
+        return false;
+    if (!g_frame || g_width != UINT(sd.Width) || g_height != sd.Height)
+    {
+        if (g_frame)
+            Frame().garbage.push_back(std::move(g_frame));
+        D3D12_HEAP_PROPERTIES heap{ D3D12_HEAP_TYPE_DEFAULT };
+        D3D12_RESOURCE_DESC desc{};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Width = sd.Width;
+        desc.Height = sd.Height;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        desc.SampleDesc.Count = 1;
+        if (FAILED(g_r.device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc, kIdle, nullptr, IID_PPV_ARGS(&g_frame))))
+            return false;
+        g_width = UINT(sd.Width);
+        g_height = sd.Height;
+    }
+    D3D12_RESOURCE_BARRIER b{};
+    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b.Transition.pResource = g_frame.Get();
+    b.Transition.StateBefore = kIdle;
+    b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+    list->ResourceBarrier(1, &b);
+    list->CopyResource(g_frame.Get(), src);
+    std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
+    list->ResourceBarrier(1, &b);
+    g_ready = true;
+    return true;
+}
+
+namespace
+{
+thread_local bool t_offering = false; // inside Host::presentFrame (CopyFrameTo is only valid there)
+}
+
+void RendererHandOff()
+{
+    using namespace handoff;
+    if (!g_ready || !g_frame)
+        return;
+    g_ready = false;
+    t_offering = true;
+    regpu::GetHost().presentFrame(g_width, g_height);
+    t_offering = false;
+}
+
+bool regpu::CopyFrameTo(void* d3d12Resource)
+{
+    using namespace handoff;
+    auto* dest = static_cast<ID3D12Resource*>(d3d12Resource);
+    if (!t_offering || !dest || !g_frame || !EnsureCopyPipeline())
+        return false;
+    const UINT slot = g_next++ % kSlots;
+    if (g_fences[slot] && g_r.fence->GetCompletedValue() < g_fences[slot])
+        WaitFenceValue(g_fences[slot], INFINITE);
+    g_allocators[slot]->Reset();
+    g_list->Reset(g_allocators[slot].Get(), nullptr);
+    D3D12_CPU_DESCRIPTOR_HANDLE cpu = g_heap->GetCPUDescriptorHandleForHeapStart();
+    cpu.ptr += SIZE_T(slot) * 2 * g_stride;
+    D3D12_GPU_DESCRIPTOR_HANDLE gpu = g_heap->GetGPUDescriptorHandleForHeapStart();
+    gpu.ptr += UINT64(slot) * 2 * g_stride;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+    srv.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.Texture2D.MipLevels = 1;
+    g_r.device->CreateShaderResourceView(g_frame.Get(), &srv, cpu);
+    D3D12_CPU_DESCRIPTOR_HANDLE uavCpu = cpu;
+    uavCpu.ptr += g_stride;
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uav{};
+    uav.Format = dest->GetDesc().Format;
+    uav.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+    g_r.device->CreateUnorderedAccessView(dest, nullptr, &uav, uavCpu);
+    D3D12_RESOURCE_BARRIER b{};
+    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+    b.Transition.pResource = dest;
+    b.Transition.StateBefore = D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE;
+    b.Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    g_list->ResourceBarrier(1, &b);
+    ID3D12DescriptorHeap* heaps[] = { g_heap.Get() };
+    g_list->SetDescriptorHeaps(1, heaps);
+    g_list->SetComputeRootSignature(g_root.Get());
+    g_list->SetPipelineState(g_pso.Get());
+    g_list->SetComputeRootDescriptorTable(0, gpu);
+    const D3D12_RESOURCE_DESC dd = dest->GetDesc();
+    g_list->Dispatch(UINT((dd.Width + 7) / 8), (dd.Height + 7) / 8, 1);
+    std::swap(b.Transition.StateBefore, b.Transition.StateAfter);
+    g_list->ResourceBarrier(1, &b);
+    g_list->Close();
+    ID3D12CommandList* lists[] = { g_list.Get() };
+    SubmitLists(1, lists);
+    g_fences[slot] = g_r.nextFence++;
+    g_r.queue->Signal(g_r.fence.Get(), g_fences[slot]);
+    return true;
+}
+
 void RendererSaveCaches()
 {
     g_diskWriter.Flush();
@@ -11670,6 +11860,32 @@ void PrecompileAll()
     g_stats.staticTotal = 0;
     g_lastLongHold = std::chrono::steady_clock::now();
     Log("static shaders: %zu compiled in %.1f s (%zu found in memory meanwhile)", compiling.size(), std::chrono::duration<double>(std::chrono::steady_clock::now() - compileStart).count(), compiling.size() - size_t(toCompile));
+}
+
+namespace
+{
+std::atomic<bool> g_preparing{ false };
+}
+
+void regpu::PrepareShaders()
+{
+    if (g_precompileDone || g_preparing.exchange(true))
+        return;
+    std::thread([] {
+        SetThreadDescription(GetCurrentThread(), L"regpu shader preparation");
+        // (Before the game runs nothing else draws, so the renderer can start here.)
+        if (!g_r.ok)
+            Init();
+        PrecompileAll();
+        g_preparing = false;
+    }).detach();
+}
+
+bool regpu::ShaderPreparation(uint32_t& done, uint32_t& total)
+{
+    total = g_stats.warmTotal.load();
+    done = std::min(g_stats.warmDone.load(), total);
+    return g_preparing.load();
 }
 
 void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
