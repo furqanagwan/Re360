@@ -86,6 +86,24 @@ category = "patch"         # or "mod": which guide page lists it ("cheat" reads 
   Codegen emits `if (REX_PATCH_ACTIVE(i) && ctx.lr == lr) r11 = value;` there.
   `lr` needs the link register kept (not `skip_lr`). Sets are for switchable
   patches only, and a switchable patch may consist of sets alone.
+
+  `when_nonzero` narrows a set further. Each entry is a register (`"r26"`) or
+  the big-endian word at a register plus an offset (`"r26+316"`, read only
+  when the register is non-zero), and all must be non-zero. Quantum of
+  Solace's One-Hit Kills uses it to kill only when the attacker is the player
+  (`r26`, the attacker, has a client at +316). The trainer's unconditional
+  version also killed the scripted bomber when a van shoved him at the start
+  of Mission 6, and the opening cutscene crashed looking for him
+  ([RG-007-015](https://github.com/furqanagwan/007/blob/main/docs/RG-007-015.md)).
+
+  ```toml
+  [[patch.set]]
+  address = 0x82233698
+  register = "r11"
+  value = 0
+  lr = 0x82233484
+  when_nonzero = ["r26", "r26+316"]
+  ```
 - **No control flow.** Analysis sees only the original code, so a switchable
   patch may not change or introduce a branch, call, return, trap or `sc`
   (primary opcodes 3, 16, 17, 18, 19 and `tw`); codegen refuses it. Make such a

@@ -153,7 +153,8 @@ Result<SwitchablePatches> PrepareSwitchablePatches(const BinaryView& binary,
             fmt::format("Patch \"{}\" tests lr at 0x{:08X}, but skip_lr drops the link register.",
                         patch.name, set.address));
       }
-      out.sets.emplace(set.address, SwitchedSet{set.reg, set.value, set.lr, index, patch.name});
+      out.sets.emplace(set.address, SwitchedSet{set.reg, set.value, set.lr, set.when_nonzero, index,
+                                                patch.name});
     }
   }
 

@@ -495,12 +495,16 @@ std::string FunctionNode::emitCpp(const EmitContext& ctx) const {
           BuilderContext setCtx{body,           ctx,      *this,  insn, blockBase, data,
                                 localVariables, csrState, nullptr};
           emit_println(body, "	// switchable patch \"{}\": set r{}", set.patch_name, set.reg);
-          if (set.lr) {
-            emit_println(body, "	if (REX_PATCH_ACTIVE({}) && uint32_t(ctx.lr) == 0x{:08X}u) {{",
-                         set.patch_index, *set.lr);
-          } else {
-            emit_println(body, "	if (REX_PATCH_ACTIVE({})) {{", set.patch_index);
+          std::string condition = fmt::format("REX_PATCH_ACTIVE({})", set.patch_index);
+          if (set.lr)
+            condition += fmt::format(" && uint32_t(ctx.lr) == 0x{:08X}u", *set.lr);
+          for (const PatchNonzero& nonzero : set.when_nonzero) {
+            const std::string reg = setCtx.r(nonzero.reg);
+            condition += fmt::format(" && {}.u32 != 0", reg);
+            if (nonzero.offset)
+              condition += fmt::format(" && REX_LOAD_U32({}.u32 + {}) != 0", reg, *nonzero.offset);
           }
+          emit_println(body, "	if ({}) {{", condition);
           emit_println(body, "		{}.u64 = 0x{:X}ull;", setCtx.r(set.reg), set.value);
           emit_println(body, "	}}");
         }
