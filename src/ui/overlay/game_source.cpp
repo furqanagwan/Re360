@@ -1080,7 +1080,7 @@ void ShaderPreparationDialog::OnDraw(ImGuiIO& io) {
     ImGui::ProgressBar(status_.total ? float(status_.done) / float(status_.total) : 0.0f,
                        ImVec2(width, 0));
     std::string plain = progress;
-    plain.erase(std::remove(plain.begin(), plain.end(), '\r'), plain.end());
+    std::erase(plain, '\r');
     ImGui::TextUnformatted(plain.c_str());
     if (status_.max_threads) {
       int threads = int(status_.threads);
