@@ -14,7 +14,7 @@ repository or linked issue, not only in a conversation.
 | Runtime, memory, threads, guest objects | `src/system`, `src/kernel` | Process-isolated unit/guest-contract tests |
 | Xenos, PM4, textures, render targets, shaders | `src/graphics`, `include/rex/graphics` | Synthetic GPU readback, affected shader paths and NVIDIA/title evidence |
 | Native presentation and title host | `src/ui`, `include/rex/ui` | Host/UI tests and fullscreen/Guide integration |
-| Xbox Guide/XUI implementation | [Xbox Guide](https://github.com/furqanagwan/xbox) | Standalone core plus SDK adapter tests; update the pin deliberately |
+| Xbox Guide/XUI implementation | `src/xbox` | XUI and Guide unit tests (`unit_tests [xui]`, `[guide]`) and the fuzzer |
 | CLI, templates, installed SDK | `src/rexglue`, `resources`, `cmake` | Script/unit tests and an external installed consumer |
 | 007 content/configuration | [007](https://github.com/furqanagwan/007) | Executable-bound configuration and private title validation |
 

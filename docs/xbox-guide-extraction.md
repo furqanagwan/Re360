@@ -1,8 +1,13 @@
-# Xbox repository extraction
+# Xbox repository extraction (historical)
 
-Date: 2026-10-06. Guide sources are maintained in
+The Guide is back in this repository under `src/xbox` since 2026-11-11
+([ADR-018](adr/ADR-018-re360-one-repository-two-gpu-plugins.md)). This page records the
+separate-repository period; that repository's own record is in
+[research/ui/xbox-guide-repository](../research/ui/xbox-guide-repository/extraction.md).
+
+Date: 2026-10-06. Guide sources were maintained in
 [furqanagwan/xbox-guide](https://github.com/furqanagwan/xbox), pinned under
-`thirdparty/xbox`. The extraction source is SDK commit
+thirdparty/xbox. The extraction source is SDK commit
 `d1a87b4ef0a09c7a7813ab2a2b27976de01de203`.
 
 The Guide, native XUI sources, public headers and eight unit-test translation

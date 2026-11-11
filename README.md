@@ -5,11 +5,12 @@ game's PowerPC code into C++ ahead of time, then supplies the parts of the
 console the game expects: kernel, memory, graphics, audio, input, saves and
 the Xbox 360 Guide.
 
-It is one repository for what used to be two:
+It is one repository for what used to be three:
 
 - **ReCPU** (formerly the ReXGlue SDK): the recompiler and the console runtime.
 - **ReGPU**: a lean Xenos renderer that draws into real host textures and
   translates shaders to readable HLSL.
+- **Xbox**: the Xbox 360 Guide, played from the console's own scenes.
 
 > Status: alpha. Expect breaking changes. Three games (the Xbox 360 James Bond
 > titles) are tested with the default renderer; ReGPU builds and passes its
@@ -95,7 +96,7 @@ renderers) is in the [native GPU plan](docs/native-gpu-plan.md).
 | `src/regpu`, `include/regpu` | The `regpu` GPU plugin (ReGPU) |
 | `src/audio`, `src/input`, `src/filesystem` | Sound, controllers, files and saves |
 | `src/ui` | Window, presenter and overlays |
-| `thirdparty/xbox` | The Xbox 360 Guide ([its own repo](https://github.com/furqanagwan/xbox)) |
+| `src/xbox` | The Xbox 360 Guide and the XUI scenes it plays |
 | `tools/regpu` | ReGPU's live debugger, console (XBDM) comparison tools, shader disassembler |
 | `tests` | Unit, instruction and GPU tests |
 | `docs`, `research` | Design notes, decisions, test evidence and hardware notes |
@@ -132,5 +133,5 @@ Re360 builds on:
 - AMD FidelityFX Super Resolution 1 (MIT), compiled into
   `src/regpu/gpu/bytecode/fsr1_cs.h`.
 
-The histories of both source repositories are in this one: `git log` shows
-ReXGlue's commits and ReGPU's.
+The histories of all three source repositories are in this one: `git log`
+shows ReXGlue's, ReGPU's and the Guide's commits.

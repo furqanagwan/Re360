@@ -1,7 +1,9 @@
 # ADR-013: Xbox Guide has a separate source and issue repository
 
-Date: 2026-10-06. Status: accepted; sources extracted and issues transferred.
-Synthetic/build validation is recorded below; owner pad validation remains pending.
+Date: 2026-10-06. Status: **superseded** on 2026-11-11 by
+[ADR-018](ADR-018-re360-one-repository-two-gpu-plugins.md): the Guide's sources and history are back
+in this repository under `src/xbox`. Kept as the record of the separate-repository period; its
+issues stay at the old repository's links.
 
 ## Context
 

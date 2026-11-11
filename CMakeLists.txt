@@ -231,11 +231,8 @@ add_compile_options(
 
 include_directories(${REXGLUE_ROOT}/include)
 
-# The Xbox interface (XUI runtime and Guide) has its own repository; keep its pinned adapter in rexruntime.
-if(NOT EXISTS "${REXGLUE_ROOT}/thirdparty/xbox/cmake/rexglue.cmake")
-    message(FATAL_ERROR "Xbox submodule is missing; run git submodule update --init --recursive")
-endif()
-include("${REXGLUE_ROOT}/thirdparty/xbox/cmake/rexglue.cmake")
+# The Xbox interface (XUI runtime and Guide), compiled into rexruntime.
+include("${REXGLUE_ROOT}/src/xbox/cmake/rexglue.cmake")
 include_directories(${XBOX_INCLUDE_DIRS})
 
 add_subdirectory(src/core)
