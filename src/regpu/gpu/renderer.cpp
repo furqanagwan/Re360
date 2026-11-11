@@ -3565,8 +3565,47 @@ struct Manifest
         snprintf(name, sizeof(name), "%s_%016llx.ucode", pixel ? "ps" : "vs", (unsigned long long)hash);
         return RegpuUserDir() / "shadercache" / name;
     }
+    // A release's recorded shaders and pipelines (regpu_shaders/seed: pipelines.manifest and
+    // shadercache/*.ucode, from the developer's play) join the player's own before they load, so the
+    // first boot builds every pipeline the release knows behind the preparation screen instead of
+    // stalling the first time a level needs one. Lines and shaders the player has already are kept.
+    static void MergeSeed()
+    {
+        const std::filesystem::path seed = ShaderPackDir() / "seed";
+        std::error_code ec;
+        if (!std::filesystem::is_regular_file(seed / "pipelines.manifest", ec))
+            return;
+        std::filesystem::create_directories(RegpuUserDir() / "shadercache", ec);
+        std::unordered_set<std::string> have;
+        {
+            std::ifstream mine(Path());
+            for (std::string line; std::getline(mine, line);)
+                have.insert(line);
+        }
+        size_t lines = 0, shaders = 0;
+        {
+            std::ifstream in(seed / "pipelines.manifest");
+            std::ofstream out(Path(), std::ios::app);
+            for (std::string line; std::getline(in, line);)
+                if (!line.empty() && have.insert(line).second)
+                {
+                    out << line << '\n';
+                    lines++;
+                }
+        }
+        for (const auto& entry : std::filesystem::directory_iterator(seed / "shadercache", ec))
+        {
+            if (entry.path().extension() != ".ucode")
+                continue;
+            const std::filesystem::path target = RegpuUserDir() / "shadercache" / entry.path().filename();
+            if (!std::filesystem::exists(target, ec) && std::filesystem::copy_file(entry.path(), target, ec))
+                shaders++;
+        }
+        Log("renderer: seed added %zu manifest lines and %zu shaders (%s)", lines, shaders, seed.string().c_str());
+    }
     void Load()
     {
+        MergeSeed();
         std::ifstream in(Path());
         std::string line;
         while (std::getline(in, line))
