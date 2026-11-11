@@ -25,7 +25,7 @@ bool BuildAttn(BuilderContext& ctx) {
 }
 
 bool BuildSync(BuilderContext& ctx) {
-  (void)ctx;
+  ctx.println("	std::atomic_thread_fence(std::memory_order_seq_cst);");
   return true;
 }
 
@@ -40,12 +40,12 @@ bool BuildIcbi(BuilderContext& ctx) {
 }
 
 bool BuildLwsync(BuilderContext& ctx) {
-  (void)ctx;
+  ctx.println("	std::atomic_thread_fence(std::memory_order_acq_rel);");
   return true;
 }
 
 bool BuildEieio(BuilderContext& ctx) {
-  (void)ctx;
+  ctx.println("	std::atomic_thread_fence(std::memory_order_seq_cst);");
   return true;
 }
 
