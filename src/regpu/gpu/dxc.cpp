@@ -80,7 +80,8 @@ bool UseDxil()
     return on;
 }
 
-bool CompileDxil(const std::string& hlsl, bool pixel, bool optimize, ID3DBlob** code, std::string* errors)
+bool CompileDxil(const std::string& hlsl, bool pixel, bool optimize, ID3DBlob** code, std::string* errors,
+    const std::vector<std::wstring>& extraArgs)
 {
     *code = nullptr;
     const DxcCreateInstanceProc create = CreateInstance();
@@ -96,12 +97,18 @@ bool CompileDxil(const std::string& hlsl, bool pixel, bool optimize, ID3DBlob** 
         *errors = "DxcCreateInstance(CLSID_DxcCompiler) failed";
         return false;
     }
-    std::vector<LPCWSTR> args = { L"-E", L"main", L"-T", pixel ? L"ps_6_0" : L"vs_6_0", L"-HV", L"2018", optimize ? L"-O3" : L"-O1" };
+    // -Gis: strict IEEE, no contraction or reassociation. Without it 34 of Blood Stone's 190 pixel shaders
+    // differed from fxc's build (regpu_shadercmp): a fused multiply-add one ulp off flips the step
+    // functions translated shaders are full of (x >= 0) and a whole region changes. With it, DXIL
+    // matches fxc as closely as fxc's optimised and unoptimised builds match each other.
+    std::vector<LPCWSTR> args = { L"-E", L"main", L"-T", pixel ? L"ps_6_0" : L"vs_6_0", L"-HV", L"2018", L"-Gis", optimize ? L"-O3" : L"-O1" };
     if (!pixel)
     {
         args.push_back(L"-D");
         args.push_back(L"REGPU_VERTEX_STAGE=1");
     }
+    for (const std::wstring& a : extraArgs)
+        args.push_back(a.c_str());
     const DxcBuffer source{ hlsl.data(), hlsl.size(), DXC_CP_UTF8 };
     ComPtr<IDxcResult> result;
     if (FAILED(compiler->Compile(&source, args.data(), UINT32(args.size()), nullptr, IID_PPV_ARGS(&result))))

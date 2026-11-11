@@ -123,6 +123,14 @@ if(REGPU_DXIL_PACK)
     add_custom_command(TARGET regpu_dis POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${REGPU_DXC_FILES} $<TARGET_FILE_DIR:regpu_dis>
         VERBATIM)
+    # FXC and DXIL builds of each pixel shader drawn with the same inputs (regpu_shadercmp <cache folder>).
+    add_executable(regpu_shadercmp ${REXGLUE_ROOT}/tools/regpu/shader_cmp.cpp)
+    target_include_directories(regpu_shadercmp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_options(regpu_shadercmp PRIVATE -w)
+    target_link_libraries(regpu_shadercmp PRIVATE regpu d3dcompiler)
+    add_custom_command(TARGET regpu_shadercmp POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${REGPU_DXC_FILES} $<TARGET_FILE_DIR:regpu_shadercmp>
+        VERBATIM)
     install(TARGETS regpu_dis RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(FILES ${REGPU_DXC_FILES} DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()

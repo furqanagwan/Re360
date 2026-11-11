@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include <d3dcommon.h>
 
@@ -17,10 +18,13 @@ uint64_t ShaderSourceKey(const std::string& hlsl, bool pixel);
 bool UseDxil();
 bool DxcAvailable();
 
-// vs_6_0 / ps_6_0 with HLSL 2018 rules (the translator uses vector && || and ?:, which 2021 rejects).
+// vs_6_0 / ps_6_0 with HLSL 2018 rules (the translator uses vector && || and ?:, which 2021 rejects)
+// and strict IEEE arithmetic (-Gis), so results match fxc's.
 // Fails, with a message in errors, when DXC is missing or the output is unsigned (no dxil.dll):
 // D3D12 rejects unsigned DXIL.
-bool CompileDxil(const std::string& hlsl, bool pixel, bool optimize, ID3DBlob** code, std::string* errors);
+// extraArgs: further DXC arguments (regpu_shadercmp --dxc).
+bool CompileDxil(const std::string& hlsl, bool pixel, bool optimize, ID3DBlob** code, std::string* errors,
+    const std::vector<std::wstring>& extraArgs = {});
 
 // REGPU_SHADER_PACK, else regpu_shaders beside the game executable.
 const std::filesystem::path& ShaderPackDir();

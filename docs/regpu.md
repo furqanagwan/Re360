@@ -132,6 +132,24 @@ cistern loaded every shader from it at setup and compiled 5 with DXC during
 play, at 30 fps with no failed pipelines; the picture looks as with FXC. The
 pack is built from the player's own game files and is never committed.
 
+DXC compiles with strict IEEE arithmetic (`-Gis`). `regpu_shadercmp <cache
+folder>` checks the two compilers agree: it draws every pixel shader twice
+with identical inputs (fixed pseudo-random constants, noise textures, varying
+interpolators), as FXC builds it at run time and as the pack holds it, and
+compares the 32-bit float pictures. On Blood Stone's 190 pixel shaders:
+
+| DXIL build | Identical | Within 0.1% | Differ |
+| --- | --- | --- | --- |
+| DXC default (fused, reassociated arithmetic) | 61 | 95 | 34 |
+| DXC `-Gis` | 136 | 54 | 0 |
+| FXC optimised, as a control (`--control`) | 136 | 54 | 0 |
+
+The default build's differences came from multiply-adds fused one ulp
+differently, which the step functions in translated shaders (`x >= 0`) turn
+into whole regions of a different colour. With `-Gis` DXIL agrees with FXC as
+closely as FXC's two builds agree with each other. Vertex shaders aren't
+compared yet.
+
 ## Game-specific fixes
 
 ReGPU stays game-neutral. A workaround for one game goes through the optional
