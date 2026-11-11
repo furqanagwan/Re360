@@ -453,6 +453,7 @@ struct FrameResources
     uint8_t* ringCpu = nullptr;
     UINT64 ringSize = 0; // this slot's ring (grows, see RingAlloc)
     std::atomic<UINT64> ringUsed{ 0 }; // draw workers allocate concurrently
+    std::atomic<UINT64> ringBy[6]{};   // bytes this frame by RingUse (RingAlloc), for the peak and full logs
     // Guest ranges already uploaded this frame: (address << 32 | bytes) -> (offset, sample hash).
     std::unordered_map<uint64_t, std::pair<UINT64, uint64_t>> uploads;
     UINT descriptorBase = 0;
@@ -464,6 +465,7 @@ struct FrameResources
     std::vector<std::pair<ComPtr<ID3D12CommandAllocator>, ComPtr<ID3D12GraphicsCommandList>>> pool;
     size_t poolUsed = 0;
 };
+std::string RingBreakdown(const FrameResources& f);
 
 // The pipeline this thread is handing to the driver compiler, named by RendererLogCrashContext if the driver faults.
 struct CompilingNow { uint64_t vs, ps; bool active; };
@@ -2729,7 +2731,8 @@ void BeginFrameIfNeeded()
     {
         g_ringPeak = used;
         if (used > f.ringSize / 2)
-            Log("renderer: upload ring peak %llu MB of %llu", (unsigned long long)(used >> 20), (unsigned long long)(f.ringSize >> 20));
+            Log("renderer: upload ring peak %llu MB of %llu (%s)", (unsigned long long)(used >> 20), (unsigned long long)(f.ringSize >> 20),
+                RingBreakdown(f).c_str());
     }
     if (const UINT64 want = g_ringWant.load(); want > f.ringSize)
     {
@@ -2740,6 +2743,8 @@ void BeginFrameIfNeeded()
         Log("renderer: upload ring grown to %llu MB", (unsigned long long)(want >> 20));
     }
     f.ringUsed = 0;
+    for (auto& by : f.ringBy)
+        by.store(0, std::memory_order_relaxed);
     f.uploads.clear();
     // Guest memory not mapped at init: try again a few times (see MapGuestMemory).
     if (!g_r.physical && (g_r.frame == 30 || g_r.frame == 120 || g_r.frame == 600 || g_r.frame == 2400) && !getenv("REGPU_NO_MAP_RETRY"))
@@ -2775,7 +2780,25 @@ void BeginFrameIfNeeded()
 }
 
 // Allocates from the frame's upload ring; returns the offset (or ~0).
-UINT64 RingAlloc(UINT64 bytes, UINT64 alignment = 256)
+// What an upload ring allocation holds, counted per frame (FrameResources::ringBy) so a frame that
+// fills the ring says what filled it.
+enum RingUse : int { RingOther, RingVertices, RingIndices, RingTextures, RingConstants, RingOverlay, RingUses };
+
+std::string RingBreakdown(const FrameResources& f)
+{
+    static const char* const names[RingUses] = { "other", "vertices", "indices", "textures", "constants", "overlay" };
+    std::string s;
+    for (int i = 0; i < RingUses; i++)
+        if (const UINT64 b = f.ringBy[i].load(std::memory_order_relaxed); b >> 20)
+        {
+            char part[48];
+            snprintf(part, sizeof(part), "%s%s %llu MB", s.empty() ? "" : ", ", names[i], (unsigned long long)(b >> 20));
+            s += part;
+        }
+    return s.empty() ? "all under 1 MB each" : s;
+}
+
+UINT64 RingAlloc(UINT64 bytes, UINT64 alignment = 256, RingUse use = RingOther)
 {
     FrameResources& f = Frame();
     UINT64 used = f.ringUsed.load(std::memory_order_relaxed), offset;
@@ -2795,10 +2818,12 @@ UINT64 RingAlloc(UINT64 bytes, UINT64 alignment = 256)
         if ((RendererTracing() || fullLogs < 20) && lastFull != g_r.frame && ++fullLogs)
         {
             lastFull = g_r.frame;
-            Log("ring full: %llu bytes requested, %llu used, %llu uploads cached", (unsigned long long)bytes, (unsigned long long)f.ringUsed.load(), (unsigned long long)f.uploads.size());
+            Log("ring full: %llu bytes requested, %llu used, %llu uploads cached (%s)", (unsigned long long)bytes, (unsigned long long)f.ringUsed.load(),
+                (unsigned long long)f.uploads.size(), RingBreakdown(f).c_str());
         }
         return ~0ull;
     }
+    f.ringBy[use].fetch_add(bytes, std::memory_order_relaxed);
     return offset;
 }
 
@@ -2968,7 +2993,7 @@ UINT64 UploadGuest(uint32_t guest, uint32_t bytes)
         static std::atomic<uint32_t> logged{ 0 };
         if (logged++ < 8)
             Log("upload: %08X (%u bytes) is not all readable guest memory: %zu bytes copied, zeros after", guest, bytes, readable);
-        const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16);
+        const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16, RingVertices);
         if (offset != ~0ull)
         {
             memcpy(f.ringCpu + offset, src, readable);
@@ -3085,7 +3110,7 @@ UINT64 UploadGuest(uint32_t guest, uint32_t bytes)
     if (g_perfTiming) g_uploadStats.copied += bytes;
     if (RendererTracing() && bytes > (16u << 10))
         Log("upload: %08X %u bytes (ring %llu)", guest, bytes, (unsigned long long)f.ringUsed.load());
-    const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16);
+    const UINT64 offset = RingAlloc(std::max<uint32_t>(bytes, 16) + 16, 16, RingVertices);
     if (offset == ~0ull)
         return offset;
     memcpy(f.ringCpu + offset, src, bytes);
@@ -3319,7 +3344,7 @@ bool GetIndexBufferLocked(uint32_t base, uint32_t count, bool is32, uint32_t end
         g_indexChanging = !checkOnce;
     }
     // Swap into the upload ring (as the vertex shader would read them), then copy.
-    const UINT64 offset = RingAlloc((bytes + 15) & ~15u, 16);
+    const UINT64 offset = RingAlloc((bytes + 15) & ~15u, 16, RingIndices);
     if (offset == ~0ull)
         return false;
     uint8_t* dst = Frame().ringCpu + offset;
@@ -4966,7 +4991,7 @@ ID3D12Resource* GetVolumeTexture(const TextureFetch& fetch, DXGI_FORMAT& format)
     if (!DecodeTexture3D(fetch, rgba))
         return nullptr;
     const UINT rowPitch = (w * 4 + 255) & ~255u;
-    const UINT64 offset = RingAlloc(UINT64(rowPitch) * h * d, 512);
+    const UINT64 offset = RingAlloc(UINT64(rowPitch) * h * d, 512, RingTextures);
     if (offset == ~0ull)
     {
         NoteTextureFailure("upload ring full (3D)", fetch);
@@ -5169,7 +5194,7 @@ ID3D12Resource* GetCubeTexture(const TextureFetch& fetch, DXGI_FORMAT& format)
             return cached.resource.Get();
         const UINT rowPitch = (w * 4 + 255) & ~255u;
         const UINT64 faceBytes = (UINT64(rowPitch) * h + 511) & ~511ull;
-        const UINT64 offset = RingAlloc(faceBytes * 6 * 2, 512); // all levels fit in twice level 0
+        const UINT64 offset = RingAlloc(faceBytes * 6 * 2, 512, RingTextures); // all levels fit in twice level 0
         if (offset == ~0ull)
             return nullptr;
         C().list->ResourceBarrier(1, &b);
@@ -5607,7 +5632,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
         {
             const uint32_t lw = levels[l].Width(), lh = levels[l].Height();
             const UINT rowPitch = (((lw + bs - 1) / bs) * blockBytes + 255) & ~255u;
-            const UINT64 offset = RingAlloc(UINT64(rowPitch) * ((lh + bs - 1) / bs), 512);
+            const UINT64 offset = RingAlloc(UINT64(rowPitch) * ((lh + bs - 1) / bs), 512, RingTextures);
             if (offset == ~0ull)
             {
                 NoteTextureFailure("upload ring full (compressed)", fetch);
@@ -5697,7 +5722,7 @@ ID3D12Resource* GetTextureLocked(const TextureFetch& fetch, DXGI_FORMAT& format,
         }
         const uint32_t lw = levels[l].Width(), lh = levels[l].Height();
         const UINT rowPitch = (lw * 4 + 255) & ~255u;
-        const UINT64 offset = RingAlloc(UINT64(rowPitch) * lh, 512);
+        const UINT64 offset = RingAlloc(UINT64(rowPitch) * lh, 512, RingTextures);
         if (offset == ~0ull)
         {
             NoteTextureFailure("upload ring full", fetch);
@@ -7965,7 +7990,7 @@ ID3D12Resource* PrepareOverlay()
 {
     return PrepareOverlayOn(C().list->Real(), [](UINT64 bytes) {
         OverlayUpload u;
-        const UINT64 offset = RingAlloc(bytes, 512);
+        const UINT64 offset = RingAlloc(bytes, 512, RingOverlay);
         if (offset == ~0ull)
             return u;
         u.resource = Frame().ring.Get();
@@ -10093,7 +10118,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
     {
         if (indexEntry->frame != g_r.frame)
         {
-            indexEntry->offset = RingAlloc(list.size() * 4, 16);
+            indexEntry->offset = RingAlloc(list.size() * 4, 16, RingIndices);
             if (indexEntry->offset != ~0ull)
             {
                 memcpy(f.ringCpu + indexEntry->offset, list.data(), list.size() * 4);
@@ -10136,7 +10161,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
         uint32_t tinfo[32][4];
         float tbias[32][4];
     };
-    const UINT64 vsOffset = RingAlloc(sizeof(VSConstants)), psOffset = RingAlloc(sizeof(PSConstants));
+    const UINT64 vsOffset = RingAlloc(sizeof(VSConstants), 256, RingConstants), psOffset = RingAlloc(sizeof(PSConstants), 256, RingConstants);
     if (vsOffset == ~0ull || psOffset == ~0ull)
     {
         TraceSkip("ring full", initiator);
