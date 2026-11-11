@@ -89,6 +89,19 @@ bool IsWritableExecutableMemorySupported() {
 #endif
 }
 
+static bool IsRangeCommitted(void* base_address, size_t length) {
+  auto* at = static_cast<uint8_t*>(base_address);
+  auto* const end = at + length;
+  while (at < end) {
+    MEMORY_BASIC_INFORMATION info{};
+    if (!VirtualQuery(at, &info, sizeof(info)) || info.State != MEM_COMMIT) {
+      return false;
+    }
+    at = static_cast<uint8_t*>(info.BaseAddress) + info.RegionSize;
+  }
+  return true;
+}
+
 void* AllocFixed(void* base_address, size_t length, AllocationType allocation_type,
                  PageAccess access) {
   DWORD alloc_type = 0;
@@ -108,10 +121,16 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
   }
   DWORD protect = ToWin32ProtectFlags(access);
 #ifdef REX_BASE_MEMORY_WIN_USE_DESKTOP_FUNCTIONS
-  return VirtualAlloc(base_address, length, alloc_type, protect);
+  void* result = VirtualAlloc(base_address, length, alloc_type, protect);
 #else
-  return VirtualAllocFromApp(base_address, length, ULONG(alloc_type), ULONG(protect));
+  void* result = VirtualAllocFromApp(base_address, length, ULONG(alloc_type), ULONG(protect));
 #endif
+  if (!result && alloc_type == MEM_COMMIT && IsRangeCommitted(base_address, length)) {
+    DWORD old_protect = 0;
+    VirtualProtect(base_address, length, protect, &old_protect);
+    return base_address;
+  }
+  return result;
 }
 
 bool DeallocFixed(void* base_address, size_t length, DeallocationType deallocation_type) {
