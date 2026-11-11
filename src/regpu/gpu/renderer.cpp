@@ -4635,9 +4635,15 @@ struct PipelinePool
     std::condition_variable cv;
     std::deque<std::function<void()>> queue;
 
+    // All but two hardware threads, up to 32 (the threads run below normal priority, so the game
+    // keeps its own). Creating a pipeline is the driver compiling its shaders, up to 16 s each for
+    // Quantum of Solace's largest: its first boot builds 1,766 seeded pipelines, about 1,000 s of
+    // driver work, which took 94 s on 12 of a 24-thread CPU's threads. REGPU_PIPELINE_THREADS=n: n.
     PipelinePool()
     {
-        const unsigned n = std::clamp(std::thread::hardware_concurrency() * 3 / 4, 2u, 12u);
+        const unsigned hardware = std::max(std::thread::hardware_concurrency(), 4u);
+        const unsigned n = getenv("REGPU_PIPELINE_THREADS") ? std::clamp(unsigned(atoi(getenv("REGPU_PIPELINE_THREADS"))), 1u, 64u)
+                                                            : std::clamp(hardware - 2, 2u, 32u);
         for (unsigned i = 0; i < n; i++)
             std::thread([this] { Run(); }).detach();
     }
@@ -11914,6 +11920,17 @@ void PrecompileAll()
         const bool allSent = nextShader >= shaders.size() && nextKey >= keys.size();
         if (allSent && g_compiler.jobs.load() == 0 && building == 0)
             break;
+        // A first boot with a large seed (Quantum of Solace: 1,766 pipelines, minutes of driver work on
+        // a cold driver cache) starts the game once everything is sent and this long has passed; the
+        // rest keep building on the pool's below-normal threads. The manifest is in the order they were
+        // first met, so what the first minutes need is built first. REGPU_PRECOMPILE_SECONDS=n (0: wait
+        // for all).
+        static const double budget = getenv("REGPU_PRECOMPILE_SECONDS") ? atof(getenv("REGPU_PRECOMPILE_SECONDS")) : 30.0;
+        if (allSent && budget > 0 && std::chrono::steady_clock::now() - start > std::chrono::duration<double>(budget))
+        {
+            Log("precompile: starting the game after %.0f s with %zu pipelines still building in the background", budget, building);
+            break;
+        }
         const auto now = std::chrono::steady_clock::now();
         if (now - lastPresent > std::chrono::milliseconds(33))
         {
