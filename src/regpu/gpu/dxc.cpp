@@ -26,7 +26,14 @@ std::filesystem::path ExecutableDir()
 DxcCreateInstanceProc CreateInstance()
 {
     static const DxcCreateInstanceProc proc = [] {
-        const std::filesystem::path local = ExecutableDir() / L"dxcompiler.dll";
+        // dxil.dll first, by full path, from beside the executable or its D3D12 folder (where the
+        // DXIL shader path ships it): dxcompiler.dll then signs with the copy already loaded, not
+        // one the DLL search happens to find.
+        const std::filesystem::path dir = ExecutableDir();
+        for (const auto& candidate : { dir / L"dxil.dll", dir / L"D3D12" / L"dxil.dll" })
+            if (LoadLibraryExW(candidate.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH))
+                break;
+        const std::filesystem::path local = dir / L"dxcompiler.dll";
         HMODULE m = LoadLibraryExW(local.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
         Log("dxc: %s", m ? "using dxcompiler.dll beside the executable" : "no dxcompiler.dll beside the executable, trying the system's");
         if (!m)

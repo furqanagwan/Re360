@@ -106,16 +106,25 @@ one mode for the whole run. Each shader comes from, in order:
 
 The key is a hash of the translated HLSL, so a translator change misses the
 pack and falls back to step 3 rather than loading stale code.
-The game needs the Windows SDK's `dxcompiler.dll` and `dxil.dll` beside it;
-`dxil.dll` signs the output, and D3D12 rejects unsigned DXIL. Without
-`dxcompiler.dll` the run stays on FXC.
+The game needs `dxcompiler.dll` and `dxil.dll` beside it (`dxil.dll` may
+instead be in its `D3D12` folder); `dxil.dll` signs the output, and D3D12
+rejects unsigned DXIL. Without `dxcompiler.dll` the run stays on FXC.
 
-Build a pack from a game's shader cache, with the SDK's `x64` bin folder on
-`PATH`:
+Configure the SDK with `-DREGPU_DXIL_PACK=ON`. It downloads DXC 1.8.2502.8
+(pinned in `cmake/rexglue_dxc.cmake`, the version Microsoft's PC backward
+compatibility ships) and installs `regpu_dis` with both DLLs in `bin`. A title
+that stages the `regpu` plugin then gets the two DLLs beside its executable
+and a `<title>_regpu_shaders` target that builds the pack from the shader cache
+a run left (`%LOCALAPPDATA%\<title>\cache\regpu\shadercache`, or
+`-DREGPU_SHADER_CACHE=<folder>`):
 
 ```powershell
-regpu_dis --pack "<game folder>\regpu_shaders" "<cache>\regpu\shadercache\*.ucode"
+cmake --build out/build/release --target bloodstone_regpu_shaders
 ```
+
+Play with `REGPU_DXIL=1` after a pack build and the shaders the pack lacked
+are recorded in the cache; the next pack build includes them.
+`regpu_dis --pack <pack folder> <cache folder>` does the same by hand.
 
 Blood Stone, 2026-11-11: 222 shaders pack in 18 s (5.6 MB; FXC's cache is
 14 MB and takes 119 s optimised). With the pack, a 3-minute run in the Istanbul

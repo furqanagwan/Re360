@@ -104,3 +104,25 @@ if(PROJECT_IS_TOP_LEVEL)
     target_compile_options(regpu_dis PRIVATE -w)
     target_link_libraries(regpu_dis PRIVATE regpu d3dcompiler)
 endif()
+
+# The DXIL shader pack (docs/regpu.md): the pinned DXC beside regpu_dis, which builds
+# a title's pack, and beside each title that stages the regpu plugin, which compiles
+# what the pack lacks. Opt-in, like every download the build makes.
+option(REGPU_DXIL_PACK "ReGPU: DXIL shader packs (downloads the pinned DXC redistributable)" OFF)
+if(REGPU_DXIL_PACK)
+    if(NOT TARGET regpu_dis)
+        message(FATAL_ERROR "REGPU_DXIL_PACK needs ReGPU built as part of the top-level project")
+    endif()
+    include(${REXGLUE_ROOT}/cmake/rexglue_dxc.cmake)
+    rexglue_fetch_dxc()
+    set(REGPU_DXC_FILES
+        "${REXGLUE_DXC_DIR}/build/native/bin/x64/dxcompiler.dll"
+        "${REXGLUE_DXC_DIR}/build/native/bin/x64/dxil.dll"
+        CACHE INTERNAL "The DXC redistributable a regpu title ships")
+    set_target_properties(regpu_dis PROPERTIES EXCLUDE_FROM_ALL OFF)
+    add_custom_command(TARGET regpu_dis POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${REGPU_DXC_FILES} $<TARGET_FILE_DIR:regpu_dis>
+        VERBATIM)
+    install(TARGETS regpu_dis RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES ${REGPU_DXC_FILES} DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

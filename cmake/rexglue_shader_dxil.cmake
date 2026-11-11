@@ -33,8 +33,7 @@ set(REXGLUE_MESA_SHA256 8700a4aa5d2e87817c064c54c9285fb389973c1100573e4a2549ef01
 set(REXGLUE_D3D12_AGILITY_VERSION 1.618.5)
 set(REXGLUE_D3D12_AGILITY_SHA256 0027fc24f947c48dbded13ada7d280be221eb651644e23a8a476f0f1f0a079dd)
 set(REXGLUE_D3D12_SDK_VERSION 618)
-set(REXGLUE_DXC_VERSION 1.8.2502.8)
-set(REXGLUE_DXC_SHA256 44b0b17c972acfe1129d1d35e59f6a620149a9af084eabcc848013e97d9e9518)
+include(${CMAKE_CURRENT_LIST_DIR}/rexglue_dxc.cmake)
 
 set(REXGLUE_MESA_SOURCE_DIR "" CACHE PATH
     "Mesa tree to build spirv_to_dxil from (default: Edge's fork, downloaded at the pinned commit)")
@@ -67,10 +66,7 @@ set(REXGLUE_D3D12_AGILITY_DIR "${_rex_dxil_deps}/d3d12-${REXGLUE_D3D12_AGILITY_V
 _rexglue_dxil_fetch("microsoft.direct3d.d3d12.${REXGLUE_D3D12_AGILITY_VERSION}.zip"
     "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.d3d12/${REXGLUE_D3D12_AGILITY_VERSION}/microsoft.direct3d.d3d12.${REXGLUE_D3D12_AGILITY_VERSION}.nupkg"
     ${REXGLUE_D3D12_AGILITY_SHA256} "${REXGLUE_D3D12_AGILITY_DIR}")
-set(REXGLUE_DXC_DIR "${_rex_dxil_deps}/dxc-${REXGLUE_DXC_VERSION}")
-_rexglue_dxil_fetch("microsoft.direct3d.dxc.${REXGLUE_DXC_VERSION}.zip"
-    "https://api.nuget.org/v3-flatcontainer/microsoft.direct3d.dxc/${REXGLUE_DXC_VERSION}/microsoft.direct3d.dxc.${REXGLUE_DXC_VERSION}.nupkg"
-    ${REXGLUE_DXC_SHA256} "${REXGLUE_DXC_DIR}")
+rexglue_fetch_dxc()
 set(REXGLUE_D3D12_REDIST_FILES
     "${REXGLUE_D3D12_AGILITY_DIR}/build/native/bin/x64/D3D12Core.dll"
     "${REXGLUE_D3D12_AGILITY_DIR}/build/native/bin/x64/d3d12SDKLayers.dll"
