@@ -85,9 +85,8 @@ void ReportUnhandledGuestFault(void* context, uint64_t host_pc) {
       if (next <= frame || next > high || next < low + 8) {
         break;
       }
-      chain += fmt::format(
-          " 0x{:08X}",
-          memory::load_and_swap<uint32_t>(dispatcher->memory()->TranslateVirtual(next - 8)));
+      chain += fmt::format(" 0x{:08X}", memory::load_and_swap<uint32_t>(
+                                            dispatcher->memory()->TranslateVirtual(next - 8)));
       frame = next;
     }
     REXSYS_ERROR("Guest return addresses, innermost first (stack back chain):{}", chain);

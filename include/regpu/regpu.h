@@ -189,8 +189,30 @@ void SetGameWidescreen(bool on);
 // ReGPU otherwise prepares at the first frame with the picture held: for a host's setup screen before the
 // game starts. Call after Start, before the game draws.
 void PrepareShaders();
-// Whether PrepareShaders is still at work; done and total count the stored pipelines.
+// Whether PrepareShaders is still at work; done and total count the current step's work (finished,
+// not just started).
 bool ShaderPreparation(uint32_t& done, uint32_t& total);
+// What preparation is doing, for a screen that shows it is not stuck.
+struct PreparationStatus
+{
+    const char* step = "";       // "Building graphics pipelines", ...
+    uint32_t done = 0, total = 0; // the step's work finished / all of it
+    uint32_t working = 0;         // items the driver or compiler is on right now
+    uint32_t threads = 0;         // threads building pipelines
+    uint32_t maxThreads = 0;      // this PC's hardware threads (the most it can use)
+    double elapsed = 0;           // seconds since preparation started
+    double stepElapsed = 0;       // seconds in this step
+    double sinceLastFinished = 0; // seconds since an item last finished (a heartbeat)
+    double secondsLeft = -1;      // this step's estimate; below 0 when not known yet
+};
+bool ShaderPreparationStatus(PreparationStatus& status);
+// The threads building pipelines, 1 up to the hardware's; 0 restores the default (all but two).
+// Takes effect straight away, preparation or not.
+void SetPipelineThreads(uint32_t threads);
+uint32_t DefaultPipelineThreads();
+// Stops waiting for preparation: the game starts and the rest is built in the background, each
+// pipeline the game reaches first built when it draws (a brief stutter).
+void StartBeforePrepared();
 // Call when the game has stopped drawing (the window is closing): flushes the shader and pipeline caches.
 void SaveCaches();
 // The output (drawing) resolution while the game runs: Config's width and height at start. Taken at

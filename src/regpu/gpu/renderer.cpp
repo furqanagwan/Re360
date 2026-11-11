@@ -560,6 +560,7 @@ struct PipelineEntry
     // (WaitForPipeline), so that draw doesn't wait behind every build queued before it.
     std::function<void()> build;
     std::atomic<bool> claimed{ false };
+    std::atomic<bool> prioritized{ false }; // queued again at the front (PrioritizePipeline)
     void Build()
     {
         if (!claimed.exchange(true, std::memory_order_acq_rel))
@@ -3377,6 +3378,32 @@ bool GetIndexBufferLocked(uint32_t base, uint32_t count, bool is32, uint32_t end
     return true;
 }
 
+// Shader preparation's progress (regpu::ShaderPreparationStatus), set by the step at work.
+struct PreparationProgress
+{
+    std::atomic<const char*> step{ "Starting" };
+    std::atomic<uint32_t> done{ 0 }, total{ 0 }, working{ 0 };
+    std::atomic<int64_t> startMs{ 0 }, stepStartMs{ 0 }, lastFinishedMs{ 0 };
+    std::atomic<bool> startNow{ false };
+    static int64_t NowMs()
+    {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    }
+    void Step(const char* name, uint32_t count)
+    {
+        step = name;
+        total = count;
+        done = 0;
+        working = 0;
+        stepStartMs = NowMs();
+    }
+    void Set(uint32_t finished, uint32_t inProgress)
+    {
+        done = std::min(finished, total.load());
+        working = inProgress;
+    }
+} g_prep;
+
 // Compile activity, for the on-screen overlay and REGPU_PERF.
 struct CompileStats
 {
@@ -3398,6 +3425,7 @@ struct CompileStats
     }
     void End(bool cold)
     {
+        g_prep.lastFinishedMs = PreparationProgress::NowMs();
         busy--;
         if (cold)
             lastColdMs = uint64_t(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -4634,22 +4662,48 @@ struct PipelinePool
     std::mutex mutex;
     std::condition_variable cv;
     std::deque<std::function<void()>> queue;
+    unsigned maxThreads = 0;
+    std::atomic<unsigned> active{ 0 };
 
+    // A thread per hardware thread, of which all but two take work (the threads run below normal
+    // priority, so the game keeps its own; regpu::SetPipelineThreads changes how many, live).
+    // Creating a pipeline is the driver compiling its shaders, up to 16 s each for Quantum of
+    // Solace's largest: its first boot builds 1,766 seeded pipelines, about 1,000 s of driver work,
+    // which took 94 s on 12 of a 24-thread CPU's threads. REGPU_PIPELINE_THREADS=n: n.
     PipelinePool()
     {
-        const unsigned n = std::clamp(std::thread::hardware_concurrency() * 3 / 4, 2u, 12u);
-        for (unsigned i = 0; i < n; i++)
-            std::thread([this] { Run(); }).detach();
+        maxThreads = Hardware();
+        active = Default();
+        for (unsigned i = 0; i < maxThreads; i++)
+            std::thread([this, i] { Run(i); }).detach();
     }
-    void Push(std::function<void()> job)
+    static unsigned Hardware() { return std::clamp(std::thread::hardware_concurrency(), 2u, 64u); }
+    static unsigned Default()
+    {
+        if (const char* n = getenv("REGPU_PIPELINE_THREADS"))
+            return std::clamp(unsigned(atoi(n)), 1u, Hardware());
+        return std::max(Hardware() - 2, 1u);
+    }
+    void SetActive(unsigned n)
     {
         {
             std::lock_guard lock(mutex);
-            queue.push_back(std::move(job));
+            active = std::clamp(n ? n : Default(), 1u, maxThreads);
         }
-        cv.notify_one();
+        cv.notify_all();
     }
-    void Run()
+    void Push(std::function<void()> job, bool front = false)
+    {
+        {
+            std::lock_guard lock(mutex);
+            if (front)
+                queue.push_front(std::move(job));
+            else
+                queue.push_back(std::move(job));
+        }
+        cv.notify_all(); // (one of the threads in use: a thread past the count would leave it queued)
+    }
+    void Run(unsigned index)
     {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
         for (;;)
@@ -4657,7 +4711,7 @@ struct PipelinePool
             std::function<void()> job;
             {
                 std::unique_lock lock(mutex);
-                cv.wait(lock, [this] { return !queue.empty(); });
+                cv.wait(lock, [this, index] { return index < active.load() && !queue.empty(); });
                 job = std::move(queue.front());
                 queue.pop_front();
             }
@@ -4665,6 +4719,24 @@ struct PipelinePool
         }
     }
 };
+
+PipelinePool& Pool()
+{
+    static PipelinePool pool;
+    return pool;
+}
+
+// A pipeline the game is about to draw with, still queued behind others (a first boot's
+// preparation queues the whole stored set, ~1,800 for Quantum of Solace, and the player can start
+// before it ends): queued again at the front. Whichever copy runs first builds it; the other finds
+// it claimed. Without this, the game waited behind the whole queue (953 builds, over 20 s).
+void PrioritizePipeline(const std::shared_ptr<PipelineEntry>& entry)
+{
+    if (!entry || entry->state.load(std::memory_order_acquire) != 0 || entry->claimed.load(std::memory_order_acquire) ||
+        entry->prioritized.exchange(true))
+        return;
+    Pool().Push([entry] { entry->Build(); }, true);
+}
 
 std::shared_ptr<PipelineEntry> EnsurePipeline(const CompiledShader& vs, const CompiledShader& ps, const PipelineKey& key)
 {
@@ -4769,7 +4841,7 @@ std::shared_ptr<PipelineEntry> EnsurePipeline(const CompiledShader& vs, const Co
         g_manifest.RecordShader(true, key.ps, ps.ucodeBE);
         g_manifest.RecordPipeline(key);
     }
-    static PipelinePool pool;
+    PipelinePool& pool = Pool();
     char label[64];
     snprintf(label, sizeof(label), "pipeline %08llx/%08llx", (unsigned long long)(key.vs >> 32), (unsigned long long)(key.ps >> 32));
     g_stats.Begin(label);
@@ -4803,7 +4875,10 @@ ID3D12PipelineState* WaitForPipeline(const std::shared_ptr<PipelineEntry>& entry
 {
     static LiveSwitch async("REGPU_ASYNC_PIPELINES");
     if (async && !force && entry->state.load(std::memory_order_acquire) == 0)
+    {
+        PrioritizePipeline(entry);
         return nullptr;
+    }
     // Not started yet: built here, now. Queued behind the pool's other builds, a draw that must wait
     // for its pipeline waited for all of them: on the FX (a cold cache entering FH1's world) over 20 s,
     // and the title never queued work again. REGPU_NO_INLINE_PIPELINE=1: wait in the queue, as before.
@@ -7650,7 +7725,10 @@ bool AdvanceLookahead(double budgetMs)
             g_lookStarted++;
         }
         if (it.entry && it.entry->state.load(std::memory_order_acquire) == 0)
+        {
+            PrioritizePipeline(it.entry);
             pending = true;
+        }
     }
     // Finished items leave the list so it stays short.
     size_t keep = 0;
@@ -11788,6 +11866,7 @@ void BuildSeedPipelines()
     std::vector<std::shared_ptr<PipelineEntry>> building;
     std::vector<uint8_t> frame;
     size_t next = 0, failed = 0;
+    g_prep.Step("Building the game's shipped pipelines", uint32_t(todo.size()));
     auto lastShown = std::chrono::steady_clock::time_point{};
     for (;;)
     {
@@ -11805,7 +11884,8 @@ void BuildSeedPipelines()
                 failed++;
         }
         const size_t done = size_t(std::count_if(building.begin(), building.end(), [](const auto& e) { return e->state.load() != 0; }));
-        if (next >= todo.size() && done == building.size())
+        g_prep.Set(uint32_t(done + failed), uint32_t(building.size() - done));
+        if ((next >= todo.size() && done == building.size()) || g_prep.startNow)
             break;
         const auto now = std::chrono::steady_clock::now();
         if (now - lastShown > std::chrono::milliseconds(100))
@@ -11852,6 +11932,8 @@ void PrecompileAll()
     }
     g_stats.warmTotal = uint32_t(keys.size());
     g_stats.warmDone = 0;
+    g_prep.startMs = PreparationProgress::NowMs();
+    g_prep.Step("Building graphics pipelines", uint32_t(keys.size()));
     Log("precompile: %zu shaders and %zu pipelines stored", shaders.size(), keys.size());
     size_t nextShader = 0, nextKey = 0;
     size_t shadersInstalled = 0, pipelinesStarted = 0;
@@ -11912,8 +11994,26 @@ void PrecompileAll()
             if (e->state.load() == 0)
                 building++;
         const bool allSent = nextShader >= shaders.size() && nextKey >= keys.size();
+        // Finished: sent, less what the driver is still building (the screen's progress; counting
+        // what was sent filled the bar while the driver worked on for minutes).
+        g_prep.Set(uint32_t(nextKey > building ? nextKey - building : 0), uint32_t(building));
         if (allSent && g_compiler.jobs.load() == 0 && building == 0)
             break;
+        // The player can start before the end (the preparation screen's Start Now); the rest keep
+        // building on the pool's below-normal threads, and the warm-up carries on with what wasn't
+        // sent (WarmupStep). The manifest is in the order pipelines were first met, so what the
+        // first minutes need is built first. Each pipeline a draw meets unbuilt is built there and
+        // then (a stutter), so by default it waits for all: a first boot of Quantum of Solace's
+        // 1,766 seeded pipelines takes minutes on a cold driver cache. REGPU_PRECOMPILE_SECONDS=n:
+        // start after n seconds (the release's smoke run).
+        static const double budget = getenv("REGPU_PRECOMPILE_SECONDS") ? atof(getenv("REGPU_PRECOMPILE_SECONDS")) : 0.0;
+        if (g_prep.startNow || (allSent && budget > 0 && std::chrono::steady_clock::now() - start > std::chrono::duration<double>(budget)))
+        {
+            Log("precompile: starting the game after %.0f s with %zu pipelines still building and %zu not sent (%s)",
+                std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count(), building, keys.size() - nextKey,
+                g_prep.startNow ? "the player started" : "REGPU_PRECOMPILE_SECONDS");
+            break;
+        }
         const auto now = std::chrono::steady_clock::now();
         if (now - lastPresent > std::chrono::milliseconds(33))
         {
@@ -12018,13 +12118,14 @@ void PrecompileAll()
         return;
     g_stats.staticTotal = uint32_t(toCompile);
     g_stats.staticDone = 0;
+    g_prep.Step("Compiling the game's shaders", uint32_t(toCompile));
     const auto compileStart = std::chrono::steady_clock::now();
     auto lastShown = std::chrono::steady_clock::time_point{}, lastScan = std::chrono::steady_clock::now();
     for (size_t next = 0;;)
     {
         while (next < compiling.size() && compiling[next]->state.load() != CompiledShader::Pending)
             next++;
-        if (next == compiling.size())
+        if (next == compiling.size() || g_prep.startNow)
             break;
         const auto now = std::chrono::steady_clock::now();
         // The game keeps running meanwhile and builds the shaders it makes at runtime (the
@@ -12042,6 +12143,8 @@ void PrecompileAll()
             lastShown = now;
             g_stats.staticDone = uint32_t(std::count_if(compiling.begin(), compiling.end(),
                 [](const CompiledShader* cs) { return cs->state.load() != CompiledShader::Pending; }));
+            g_prep.total = g_stats.staticTotal.load();
+            g_prep.Set(g_stats.staticDone.load(), uint32_t(std::max(g_stats.busy.load(), 0)));
             if (BootScreenCompose(L"COMPILING SHADERS", g_stats.staticDone.load(), g_stats.staticTotal.load(), bootFrame))
                 BootPresent(bootFrame);
             else
@@ -12079,10 +12182,43 @@ void regpu::PrepareShaders()
 
 bool regpu::ShaderPreparation(uint32_t& done, uint32_t& total)
 {
-    total = g_stats.warmTotal.load();
-    done = std::min(g_stats.warmDone.load(), total);
+    total = g_prep.total.load();
+    done = g_prep.done.load();
     return g_preparing.load();
 }
+
+bool regpu::ShaderPreparationStatus(PreparationStatus& status)
+{
+    const int64_t now = PreparationProgress::NowMs();
+    status.step = g_prep.step.load();
+    status.total = g_prep.total.load();
+    status.done = std::min(g_prep.done.load(), status.total);
+    status.working = g_prep.working.load();
+    status.threads = Pool().active.load();
+    status.maxThreads = Pool().maxThreads;
+    // (Building at once: no more than the threads; the rest of what was sent waits its turn.)
+    status.working = std::min(status.working, status.threads);
+    const int64_t startMs = g_prep.startMs.load(), stepMs = g_prep.stepStartMs.load(), lastMs = g_prep.lastFinishedMs.load();
+    status.elapsed = startMs ? double(now - startMs) / 1000.0 : 0.0;
+    status.stepElapsed = stepMs ? double(now - stepMs) / 1000.0 : 0.0;
+    status.sinceLastFinished = double(now - std::max(lastMs, stepMs ? stepMs : now)) / 1000.0;
+    // The step's rate so far, once it has a few seconds and items behind it (the first come from
+    // the driver's cache and would promise too little).
+    status.secondsLeft = -1;
+    if (status.stepElapsed >= 5.0 && status.done >= 10 && status.done < status.total)
+        status.secondsLeft = double(status.total - status.done) * status.stepElapsed / double(status.done);
+    return g_preparing.load();
+}
+
+void regpu::SetPipelineThreads(uint32_t threads)
+{
+    Pool().SetActive(threads);
+    Log("renderer: %u pipeline threads (of %u)", Pool().active.load(), Pool().maxThreads);
+}
+
+uint32_t regpu::DefaultPipelineThreads() { return PipelinePool::Default(); }
+
+void regpu::StartBeforePrepared() { g_prep.startNow = true; }
 
 void RendererOnSwapImpl(uint64_t frameNumber, uint32_t frontBuffer)
 {

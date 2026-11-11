@@ -140,6 +140,32 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
     return regpu::ShaderPreparation(done, total);
   }
 
+  bool GetShaderPreparationStatus(ShaderPreparationStatus& status) override {
+    regpu::PreparationStatus s;
+    const bool preparing = regpu::ShaderPreparationStatus(s);
+    status.step = s.step;
+    status.done = s.done;
+    status.total = s.total;
+    status.working = s.working;
+    status.threads = s.threads;
+    status.max_threads = s.maxThreads;
+    status.elapsed = s.elapsed;
+    status.step_elapsed = s.stepElapsed;
+    status.since_last_finished = s.sinceLastFinished;
+    status.seconds_left = s.secondsLeft;
+    return preparing;
+  }
+
+  void SetShaderPreparationThreads(uint32_t threads) override {
+    regpu::SetPipelineThreads(threads);
+  }
+
+  uint32_t DefaultShaderPreparationThreads() const override {
+    return regpu::DefaultPipelineThreads();
+  }
+
+  void StartBeforeShadersPrepared() override { regpu::StartBeforePrepared(); }
+
   void FlushCaches() override {
     if (active_system == this) {
       regpu::SaveCaches();
