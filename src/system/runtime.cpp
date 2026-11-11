@@ -75,6 +75,23 @@ void ReportUnhandledGuestFault(void* context, uint64_t host_pc) {
       module, module_offset, guest, guest ? host_pc - host_entry : 0, ctx ? uint32_t(ctx->lr) : 0,
       ctx ? ctx->r1.u32 : 0, ctx ? ctx->r3.u32 : 0, xthread ? xthread->thread_id() : 0,
       xthread ? xthread->stack_limit() : 0, xthread ? xthread->stack_base() : 0);
+  if (ctx && xthread) {
+    std::string chain;
+    const uint32_t low = xthread->stack_limit(), high = xthread->stack_base();
+    uint32_t frame = ctx->r1.u32;
+    for (int i = 0; i < 24 && frame >= low && frame < high - 4; ++i) {
+      const uint32_t next =
+          memory::load_and_swap<uint32_t>(dispatcher->memory()->TranslateVirtual(frame));
+      if (next <= frame || next > high || next < low + 8) {
+        break;
+      }
+      chain += fmt::format(
+          " 0x{:08X}",
+          memory::load_and_swap<uint32_t>(dispatcher->memory()->TranslateVirtual(next - 8)));
+      frame = next;
+    }
+    REXSYS_ERROR("Guest return addresses, innermost first (stack back chain):{}", chain);
+  }
   rex::FlushLogging();
 }
 
