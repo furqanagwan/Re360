@@ -122,7 +122,8 @@ std::unique_ptr<GpuFixture> GpuFixture::Create(std::string* error, CvarList cvar
 
 GpuFixture::~GpuFixture() {
   if (plugin_runs_until_exit_) {
-    (void)runtime_.release();
+    Runtime* still_running = runtime_.release();
+    (void)still_running;
     return;
   }
   runtime_.reset();

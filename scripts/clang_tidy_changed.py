@@ -3,7 +3,9 @@
 Reads a unified diff (`git diff -U0 BASE...HEAD`) on stdin and runs clang-tidy
 once per changed file that is in the compilation database, limited to the
 changed lines. Any diagnostic fails the run, so new code follows the naming and
-bug checks in .clang-tidy while untouched code is left alone.
+bug checks in .clang-tidy while untouched code is left alone. ReGPU's renderer
+(src/regpu, apart from its plugin glue) keeps its own style (ADR-018) and is
+left out, as it is from clang-format.
 
 LLVM's clang-tidy-diff.py does the same, but names files with forward slashes in
 its line filter; clang-tidy reports Windows paths with backslashes, so the filter
@@ -66,16 +68,19 @@ def main() -> int:
     parser.add_argument("--clang-tidy", default="clang-tidy")
     parser.add_argument("--include", default=r"(src|include|tests/unit|tests/gpu)/.*\.(cpp|h)$",
                         help="regex the changed paths must match")
+    parser.add_argument("--exclude", default=r"src/regpu/(?!plugin/)",
+                        help="regex of changed paths that keep their own style")
     parser.add_argument("-j", "--jobs", type=int, default=4)
     args = parser.parse_args()
 
     build_path = args.build.resolve()
     in_database = compiled_files(build_path)
     include = re.compile(args.include)
+    exclude = re.compile(args.exclude) if args.exclude else None
     commands = []
     for name, ranges in changed_lines(sys.stdin.read()).items():
         path = Path(name).resolve()
-        if include.match(name) and path in in_database:
+        if include.match(name) and not (exclude and exclude.match(name)) and path in in_database:
             commands.append(tidy_command(args.clang_tidy, build_path, path, ranges))
     if not commands:
         print("No changed lines in compiled files.")
