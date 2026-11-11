@@ -174,7 +174,8 @@
       "body_matches": true,
       "labels_match": true,
       "state": "OPEN",
-      "body_sha256": "95ec988c24b00eb3b958b88447b19a66ffb8e37bbb7a1ae5f34845cbc5373df8",
+      "body_sha256": "81e1e4c2b170b41b59b6f3dba6c8d1b2c8eb6311102078cd0909ee529f97d803",
+      "reverified_at": "2026-11-11",
       "dependencies": [
         1
       ]
@@ -186,7 +187,8 @@
       "body_matches": true,
       "labels_match": true,
       "state": "OPEN",
-      "body_sha256": "58c615161f6e1f2eee148542f5644efdd8a1593be41d8db03f41aaade082e52e",
+      "body_sha256": "08d2927e8c56baa8b3c2c11aec311ef95eb94c519fb0a132207a87d7704681ff",
+      "reverified_at": "2026-11-11",
       "dependencies": [
         1,
         14
@@ -199,7 +201,8 @@
       "body_matches": true,
       "labels_match": true,
       "state": "OPEN",
-      "body_sha256": "57eea2801091a2da48d578e0de97bfcce7e8f3bbe581a991b011be32193129bb",
+      "body_sha256": "473d27b55fa5c4a57f681d32f0cf0bfd2603c602eaef2a9059de75b42b7b9d22",
+      "reverified_at": "2026-11-11",
       "dependencies": [
         4,
         13,
