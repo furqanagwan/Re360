@@ -42,7 +42,9 @@ fps sampled every 2 s for 20 s and the process's CPU time over the same 20 s:
 | Build | fps | CPU cores busy |
 | --- | --- | --- |
 | No fences | 30 (the game's cap) | 3.6, 3.7 |
-| Fences | see the [upstream ledger](../../docs/upstream-tracking.md#upstream-rexglue-v0101-2026-11-06) | |
+| Fences (6,766 in the generated code) | 30 (the game's cap) | 3.6, 3.6 |
+
+No measurable cost at the game's cap.
 
 Not measured: Quantum of Solace and 007 Legends (no game files on the machine
 at the time), and an uncapped title where the fences' cost would show as
