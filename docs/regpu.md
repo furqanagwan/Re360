@@ -133,22 +133,34 @@ play, at 30 fps with no failed pipelines; the picture looks as with FXC. The
 pack is built from the player's own game files and is never committed.
 
 DXC compiles with strict IEEE arithmetic (`-Gis`). `regpu_shadercmp <cache
-folder>` checks the two compilers agree: it draws every pixel shader twice
-with identical inputs (fixed pseudo-random constants, noise textures, varying
-interpolators), as FXC builds it at run time and as the pack holds it, and
-compares the 32-bit float pictures. On Blood Stone's 190 pixel shaders:
+folder>` checks the two compilers agree: it runs every shader twice with
+identical inputs, as FXC builds it at run time and as the pack holds it, and
+compares the 32-bit float results.
 
-| DXIL build | Identical | Within 0.1% | Differ |
-| --- | --- | --- | --- |
-| DXC default (fused, reassociated arithmetic) | 61 | 95 | 34 |
-| DXC `-Gis` | 136 | 54 | 0 |
-| FXC optimised, as a control (`--control`) | 136 | 54 | 0 |
+- Pixel shaders are drawn over a 256x256 target with fixed pseudo-random
+  constants, noise textures and varying interpolators.
+- Vertex shaders run over 192 vertices whose fetches read random floats
+  through the shader's own fetch layout. Their outputs (position after the
+  viewport transform, the 16 interpolators, the point coordinate) are captured
+  by stream output, without rasterising.
 
-The default build's differences came from multiply-adds fused one ulp
+Blood Stone, 190 pixel and 136 vertex shaders:
+
+| DXIL build | Pixel: identical / within 0.1% / differ | Vertex: identical / within 0.1% / differ |
+| --- | --- | --- |
+| DXC default (fused, reassociated arithmetic) | 61 / 95 / 34 | not run |
+| DXC `-Gis` | 141 / 49 / 0 | 113 / 23 / 0 |
+| FXC optimised, as a control (`--control`) | 141 / 49 / 0 | 88 / 48 / 0 |
+
+(The default-arithmetic row was measured before guest memory held random
+data, which moved 5 pixel shaders from "within" to "identical" in the other
+rows.) The default build's differences came from multiply-adds fused one ulp
 differently, which the step functions in translated shaders (`x >= 0`) turn
-into whole regions of a different colour. With `-Gis` DXIL agrees with FXC as
-closely as FXC's two builds agree with each other. Vertex shaders aren't
-compared yet.
+into whole regions of a different colour. With `-Gis` DXIL agrees with FXC at
+least as closely as FXC's two builds agree with each other. The tool also
+reports the share of output values the shaders wrote (82% for pixel, 20% for
+vertex: most vertex shaders use a few of the 16 outputs), so a run whose
+inputs never reached the outputs can't pass silently.
 
 ## Game-specific fixes
 

@@ -1,13 +1,18 @@
-// regpu_shadercmp <ucode files or folders>...: draws each pixel shader twice with the same inputs, as
-// fxc builds it at run time (ps_5_1, unoptimised: the default path) and as the DXIL shader pack holds
-// it (DXC ps_6_0 -O3, HLSL 2018: REGPU_DXIL=1), and compares the two pictures. Inputs: fixed
-// pseudo-random constants (pc, pb), short loops, 2D noise textures in every fetch slot, and 16
-// interpolators that vary across a 256x256 target (RGBA32F, cleared to -7 so a discard shows).
-// A channel differs when |a - b| > 1e-3 * max(1, |a|), or when one side is NaN and the other not.
+// regpu_shadercmp <ucode files or folders>...: runs each shader twice with the same inputs, as fxc
+// builds it at run time (unoptimised, SM 5.1: the default path) and as the DXIL shader pack holds it
+// (DXC SM 6.0 -O3, HLSL 2018, -Gis: REGPU_DXIL=1), and compares the results.
+// Pixel shaders (ps_*): drawn over a 256x256 RGBA32F target cleared to -7 (so a discard shows), with
+// fixed pseudo-random constants (pc, pb), short loops, 2D noise textures in every fetch slot and 16
+// interpolators varying across it. Vertex shaders (vs_*): 192 vertices captured by stream output
+// (position, o0-o15, point coordinate) after the renderer's viewport transform, with pseudo-random
+// constants (vc, vb) and every vertex fetch reading 64 KB of random floats through the shader's own
+// fetch layout (vfl), as the renderer sets it per draw.
+// A value differs when |a - b| > 1e-3 * max(1, |a|), or when one side is NaN and the other not.
 // --dxc ARG adds a DXC argument (repeatable). --control compares fxc unoptimised with fxc optimised instead (level 3): differences there are
 // rounding between two builds of one compiler, the baseline for judging DXC's.
 // dxcompiler.dll and dxil.dll must be beside this tool or on the path. Exit code: shaders that differ.
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -31,6 +36,8 @@ using Microsoft::WRL::ComPtr;
 namespace
 {
 constexpr UINT kSize = 256, kTextures = 32, kTextureSize = 64, kRawBytes = 1 << 16;
+// Stream output per vertex: position, o[16], point coordinate.
+constexpr UINT kVertices = 192, kVertexFloats = 4 + 16 * 4 + 2;
 
 const char kVertexShader[] = R"(
 VSOut main(uint id : SV_VertexID)
@@ -84,7 +91,8 @@ struct Gpu
     uint64_t fenceValue = 0;
     ComPtr<ID3D12RootSignature> rootSignature;
     ComPtr<ID3D12DescriptorHeap> srvHeap, rtvHeap;
-    ComPtr<ID3D12Resource> vsConstants, psConstants, raw, target, readback, textureUpload;
+    ComPtr<ID3D12Resource> vsConstants, psConstants, raw, target, readback, streamReadback, textureUpload;
+    uint8_t* vsBytes = nullptr;
     std::vector<ComPtr<ID3D12Resource>> textures;
 
     ComPtr<ID3D12Resource> Buffer(UINT64 size, D3D12_HEAP_TYPE heap, D3D12_RESOURCE_STATES state)
@@ -146,7 +154,7 @@ struct Gpu
             samplers[i].MaxLOD = D3D12_FLOAT32_MAX;
             samplers[i].ShaderRegister = i;
         }
-        D3D12_ROOT_SIGNATURE_DESC rs{ 4, params, 8, samplers, D3D12_ROOT_SIGNATURE_FLAG_NONE };
+        D3D12_ROOT_SIGNATURE_DESC rs{ 4, params, 8, samplers, D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT };
         ComPtr<ID3DBlob> blob, error;
         Check(D3D12SerializeRootSignature(&rs, D3D_ROOT_SIGNATURE_VERSION_1, &blob, &error), "D3D12SerializeRootSignature");
         Check(device->CreateRootSignature(0, blob->GetBufferPointer(), blob->GetBufferSize(), IID_PPV_ARGS(&rootSignature)), "CreateRootSignature");
@@ -168,7 +176,29 @@ struct Gpu
         psConstants = Buffer(1 << 16, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
         void* p = nullptr;
         Check(vsConstants->Map(0, nullptr, &p), "Map(vs)");
-        memset(p, 0, 1 << 16);
+        vsBytes = static_cast<uint8_t*>(p);
+        memset(vsBytes, 0, 1 << 16);
+        // VSConstants (hlsl.cpp): vc, vb, vl, vf, vinfo, vpoint, vscale, voffset, vte, vfl, vuser, vdepth, vwide.
+        auto* vc = reinterpret_cast<float*>(vsBytes);
+        for (UINT i = 0; i < 256 * 4; i++)
+            vc[i] = Random(-2.0f, 2.0f);
+        auto* vb = reinterpret_cast<uint32_t*>(vsBytes + 4096);
+        for (UINT i = 0; i < 8; i++)
+            vb[i] = uint32_t(Random(0.0f, 4294967040.0f));
+        auto* vl = reinterpret_cast<uint32_t*>(vsBytes + 4128);
+        for (UINT i = 0; i < 32; i++)
+            vl[i] = 4u | 1u << 16;
+        auto* vf = reinterpret_cast<uint32_t*>(vsBytes + 4256); // every fetch constant: gmem from 0, no swap
+        for (UINT i = 0; i < 96; i++)
+            vf[i * 4 + 3] = kRawBytes / 4;
+        auto* vinfo = reinterpret_cast<uint32_t*>(vsBytes + 5792);
+        vinfo[2] = vinfo[3] = kSize;
+        auto* vscale = reinterpret_cast<float*>(vsBytes + 5824);
+        vscale[0] = vscale[1] = vscale[2] = 1.0f;
+        auto* vte = reinterpret_cast<uint32_t*>(vsBytes + 5856);
+        vte[1] = 1u | 8u; // direct, generated indices: vertex i is index i
+        auto* vwide = reinterpret_cast<float*>(vsBytes + 6464);
+        vwide[0] = vwide[1] = vwide[2] = 1.0f;
         Check(psConstants->Map(0, nullptr, &p), "Map(ps)");
         auto* bytes = static_cast<uint8_t*>(p);
         memset(bytes, 0, 1 << 16);
@@ -196,7 +226,11 @@ struct Gpu
             tbias[i * 4 + 1] = i;
         }
 
-        raw = Buffer(kRawBytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_COMMON);
+        // Guest memory for vertex fetches: random floats in [-2, 2], little endian.
+        raw = Buffer(kRawBytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
+        Check(raw->Map(0, nullptr, &p), "Map(raw)");
+        for (UINT i = 0; i < kRawBytes / 4; i++)
+            static_cast<float*>(p)[i] = Random(-2.0f, 2.0f);
         D3D12_SHADER_RESOURCE_VIEW_DESC rv{};
         rv.Format = DXGI_FORMAT_R32_TYPELESS;
         rv.ViewDimension = D3D12_SRV_DIMENSION_BUFFER;
@@ -249,6 +283,69 @@ struct Gpu
             "CreateCommittedResource(target)");
         device->CreateRenderTargetView(target.Get(), nullptr, rtvHeap->GetCPUDescriptorHandleForHeapStart());
         readback = Buffer(UINT64(kSize) * kSize * 16, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+        streamReadback = Buffer(UINT64(kVertices) * kVertexFloats * 4, D3D12_HEAP_TYPE_READBACK, D3D12_RESOURCE_STATE_COPY_DEST);
+    }
+
+    // A vertex shader's fetch layout (vfl), as the renderer uploads it per draw.
+    void SetVertexLayout(const std::vector<std::array<uint32_t, 4>>& layout)
+    {
+        auto* vfl = reinterpret_cast<uint32_t*>(vsBytes + 5872);
+        memset(vfl, 0, 32 * 16);
+        for (size_t k = 0; k < layout.size() && k < 32; k++)
+            memcpy(vfl + k * 4, layout[k].data(), 16);
+    }
+
+    // Runs vs over kVertices vertices and captures its outputs by stream output; false when the
+    // pipeline can't be built.
+    bool StreamOut(ID3DBlob* vs, std::vector<float>& out)
+    {
+        D3D12_SO_DECLARATION_ENTRY entries[18]{};
+        entries[0] = { 0, "SV_POSITION", 0, 0, 4, 0 };
+        for (UINT i = 0; i < 16; i++)
+            entries[1 + i] = { 0, "TEXCOORD", i, 0, 4, 0 };
+        entries[17] = { 0, "TEXCOORD", 16, 0, 2, 0 };
+        const UINT stride = kVertexFloats * 4;
+        D3D12_GRAPHICS_PIPELINE_STATE_DESC pd{};
+        pd.pRootSignature = rootSignature.Get();
+        pd.VS = { vs->GetBufferPointer(), vs->GetBufferSize() };
+        pd.StreamOutput = { entries, 18, &stride, 1, D3D12_SO_NO_RASTERIZED_STREAM };
+        pd.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+        pd.SampleMask = UINT_MAX;
+        pd.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+        pd.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+        pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+        pd.SampleDesc.Count = 1;
+        ComPtr<ID3D12PipelineState> pso;
+        if (FAILED(device->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&pso))))
+            return false;
+        // A new committed buffer starts zeroed: the data, then the filled-size counter.
+        const UINT64 bytes = UINT64(kVertices) * stride;
+        ComPtr<ID3D12Resource> so = Buffer(bytes + 256, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_STREAM_OUT);
+        const D3D12_STREAM_OUTPUT_BUFFER_VIEW view{ so->GetGPUVirtualAddress(), bytes, so->GetGPUVirtualAddress() + bytes };
+        list->SetGraphicsRootSignature(rootSignature.Get());
+        ID3D12DescriptorHeap* heaps[] = { srvHeap.Get() };
+        list->SetDescriptorHeaps(1, heaps);
+        list->SetGraphicsRootConstantBufferView(0, vsConstants->GetGPUVirtualAddress());
+        list->SetGraphicsRootConstantBufferView(1, psConstants->GetGPUVirtualAddress());
+        D3D12_GPU_DESCRIPTOR_HANDLE table = srvHeap->GetGPUDescriptorHandleForHeapStart();
+        list->SetGraphicsRootDescriptorTable(2, table);
+        table.ptr += 2ull * device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        list->SetGraphicsRootDescriptorTable(3, table);
+        list->SetPipelineState(pso.Get());
+        list->SOSetTargets(0, 1, &view);
+        list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        list->DrawInstanced(kVertices, 1, 0, 0);
+        list->SOSetTargets(0, 0, nullptr);
+        D3D12_RESOURCE_BARRIER b{};
+        b.Transition = { so.Get(), 0, D3D12_RESOURCE_STATE_STREAM_OUT, D3D12_RESOURCE_STATE_COPY_SOURCE };
+        list->ResourceBarrier(1, &b);
+        list->CopyBufferRegion(streamReadback.Get(), 0, so.Get(), 0, bytes);
+        Flush();
+        void* p = nullptr;
+        Check(streamReadback->Map(0, nullptr, &p), "Map(stream readback)");
+        out.assign(static_cast<float*>(p), static_cast<float*>(p) + kVertices * kVertexFloats);
+        streamReadback->Unmap(0, nullptr);
+        return true;
     }
 
     // Draws a full-screen triangle with vs and ps; false when the pipeline can't be built.
@@ -351,7 +448,7 @@ int main(int argc, char** argv)
         if (std::filesystem::is_directory(argv[i], ec))
         {
             for (const auto& entry : std::filesystem::directory_iterator(argv[i], ec))
-                if (entry.path().extension() == ".ucode" && entry.path().filename().string().rfind("ps_", 0) == 0)
+                if (entry.path().extension() == ".ucode")
                     files.push_back(entry.path());
         }
         else
@@ -360,7 +457,7 @@ int main(int argc, char** argv)
     std::sort(files.begin(), files.end());
     if (files.empty())
     {
-        fprintf(stderr, "usage: regpu_shadercmp <ps_*.ucode files or shader cache folders>...\n");
+        fprintf(stderr, "usage: regpu_shadercmp [--control] [--dxc ARG]... <ps_/vs_*.ucode files or shader cache folders>...\n");
         return 100;
     }
 
@@ -375,34 +472,52 @@ int main(int argc, char** argv)
         return 100;
     }
 
-    int same = 0, close = 0, differ = 0, skipped = 0;
-    std::vector<uint64_t> seen;
+    // Per kind: [0] pixel shaders, [1] vertex shaders.
+    int same[2]{}, close[2]{}, differ[2]{}, skipped[2]{};
+    std::vector<uint64_t> seen[2];
+    // Values the fxc build wrote that are neither 0 nor the -7 clear: shows the inputs reached the outputs.
+    size_t written[2]{}, total[2]{};
     std::vector<float> a, b;
     for (const auto& file : files)
     {
         std::ifstream f(file, std::ios::binary);
         std::vector<char> bytes{ std::istreambuf_iterator<char>(f), {} };
-        const auto shader = ucode::Parse(reinterpret_cast<const uint32_t*>(bytes.data()), uint32_t(bytes.size() / 4), true);
-        const TranslatedShader t = TranslateShader(shader);
         const std::string name = file.filename().string();
+        const bool pixel = name.rfind("ps_", 0) == 0;
+        if (!pixel && name.rfind("vs_", 0) != 0)
+            continue;
+        const int kind = pixel ? 0 : 1;
+        const auto shader = ucode::Parse(reinterpret_cast<const uint32_t*>(bytes.data()), uint32_t(bytes.size() / 4), pixel);
+        const TranslatedShader t = TranslateShader(shader);
         if (!t.ok)
         {
             printf("skip %s: not translated (%s)\n", name.c_str(), t.error.c_str());
-            skipped++;
+            skipped[kind]++;
             continue;
         }
-        const uint64_t key = ShaderSourceKey(t.hlsl, true);
-        if (std::find(seen.begin(), seen.end(), key) != seen.end())
+        const uint64_t key = ShaderSourceKey(t.hlsl, pixel);
+        if (std::find(seen[kind].begin(), seen[kind].end(), key) != seen[kind].end())
             continue; // a patched copy with the same translation
-        seen.push_back(key);
-        const ComPtr<ID3DBlob> psFxc = Fxc(t.hlsl, true, errors);
-        const ComPtr<ID3DBlob> psDxil = !psFxc ? nullptr : control ? Fxc(t.hlsl, true, errors, true) : Dxil(t.hlsl, true, errors);
-        if (!psFxc || !psDxil || !gpu.Draw(vsFxc.Get(), psFxc.Get(), a) || !gpu.Draw(vsDxil.Get(), psDxil.Get(), b))
+        seen[kind].push_back(key);
+        const ComPtr<ID3DBlob> fxc = Fxc(t.hlsl, pixel, errors);
+        const ComPtr<ID3DBlob> other = !fxc ? nullptr : control ? Fxc(t.hlsl, pixel, errors, true) : Dxil(t.hlsl, pixel, errors);
+        bool ran = fxc && other;
+        if (ran && pixel)
+            ran = gpu.Draw(vsFxc.Get(), fxc.Get(), a) && gpu.Draw(vsDxil.Get(), other.Get(), b);
+        else if (ran)
+        {
+            gpu.SetVertexLayout(t.vertexFetchLayout);
+            ran = gpu.StreamOut(fxc.Get(), a) && gpu.StreamOut(other.Get(), b);
+        }
+        if (!ran)
         {
             printf("skip %s: did not compile or build (%s)\n", name.c_str(), errors.c_str());
-            skipped++;
+            skipped[kind]++;
             continue;
         }
+        for (const float v : a)
+            written[kind] += v != 0.0f && v != -7.0f;
+        total[kind] += a.size();
         size_t exact = 0, bad = 0, nanMismatch = 0, worstAt = 0;
         float worst = 0;
         for (size_t i = 0; i < a.size(); i++)
@@ -430,14 +545,30 @@ int main(int argc, char** argv)
         }
         if (!bad && !nanMismatch)
         {
-            exact == a.size() ? same++ : close++;
+            exact == a.size() ? same[kind]++ : close[kind]++;
             continue;
         }
-        differ++;
-        const size_t px = worstAt / 4;
-        printf("DIFF %s (%016llx): %zu of %zu channels differ, %zu NaN on one side only; worst %g at (%zu,%zu).%c: fxc %g dxil %g\n", name.c_str(),
-            (unsigned long long)key, bad, a.size(), nanMismatch, worst, px % kSize, px / kSize, "rgba"[worstAt % 4], a[worstAt], b[worstAt]);
+        differ[kind]++;
+        char where[64];
+        if (pixel)
+            snprintf(where, sizeof(where), "pixel (%zu,%zu).%c", worstAt / 4 % kSize, worstAt / 4 / kSize, "rgba"[worstAt % 4]);
+        else
+        {
+            const size_t f = worstAt % kVertexFloats;
+            if (f < 4)
+                snprintf(where, sizeof(where), "vertex %zu pos.%c", worstAt / kVertexFloats, "xyzw"[f]);
+            else if (f < 68)
+                snprintf(where, sizeof(where), "vertex %zu o%zu.%c", worstAt / kVertexFloats, (f - 4) / 4, "xyzw"[(f - 4) % 4]);
+            else
+                snprintf(where, sizeof(where), "vertex %zu pcoord.%c", worstAt / kVertexFloats, "xy"[f - 68]);
+        }
+        printf("DIFF %s (%016llx): %zu of %zu values differ, %zu NaN on one side only; worst %g at %s: fxc %g dxil %g\n", name.c_str(),
+            (unsigned long long)key, bad, a.size(), nanMismatch, worst, where, a[worstAt], b[worstAt]);
     }
-    printf("%zu pixel shaders: %d identical, %d within tolerance, %d differ, %d skipped\n", seen.size(), same, close, differ, skipped);
-    return differ;
+    const char* kinds[2] = { "pixel", "vertex" };
+    for (int k = 0; k < 2; k++)
+        if (!seen[k].empty() || skipped[k])
+            printf("%zu %s shaders: %d identical, %d within tolerance, %d differ, %d skipped (%.1f%% of output values written)\n", seen[k].size(),
+                kinds[k], same[k], close[k], differ[k], skipped[k], total[k] ? 100.0 * double(written[k]) / double(total[k]) : 0.0);
+    return differ[0] + differ[1];
 }
