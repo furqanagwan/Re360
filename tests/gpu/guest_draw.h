@@ -159,7 +159,8 @@ struct ResolveFormat {
 
 inline void Resolve(GpuFixture& fixture, const Surface& surface, uint32_t width, uint32_t height,
                     xenos::CopySampleSelect sample, uint32_t dest, uint32_t dest_pitch = 32,
-                    uint32_t color_base_tiles = 0, const ResolveFormat& format = {}) {
+                    uint32_t color_base_tiles = 0, const ResolveFormat& format = {},
+                    uint32_t dest_height = 32) {
   uint32_t vertices = fixture.AllocPhysical(0x100);
   fixture.WriteDwords(
       vertices, {0, 0, std::bit_cast<uint32_t>(float(width)), 0,
@@ -179,7 +180,7 @@ inline void Resolve(GpuFixture& fixture, const Surface& surface, uint32_t width,
   copy_control.copy_command = xenos::CopyCommand::kRaw;
   reg::RB_COPY_DEST_PITCH copy_dest_pitch = {};
   copy_dest_pitch.copy_dest_pitch = dest_pitch;
-  copy_dest_pitch.copy_dest_height = 32;
+  copy_dest_pitch.copy_dest_height = dest_height;
   reg::RB_COPY_DEST_INFO dest_info = {};
   dest_info.copy_dest_endian = xenos::Endian128::k8in32;
   dest_info.copy_dest_format = format.dest;

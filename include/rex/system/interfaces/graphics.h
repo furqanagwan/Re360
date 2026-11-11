@@ -45,6 +45,10 @@ class IGraphicsSystem {
   virtual ui::Presenter* presenter() const { return nullptr; }
 
   virtual void SetHostWindow(void* native_window_handle) { (void)native_window_handle; }
+  virtual bool GetShaderPreparation(uint32_t& done, uint32_t& total) {
+    done = total = 0;
+    return false;
+  }
   virtual void FlushCaches() {}
 
   virtual void SetInterruptCallback(uint32_t callback, uint32_t user_data) {

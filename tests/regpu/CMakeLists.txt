@@ -1,10 +1,12 @@
-# rexgpu-regpu through the plugin ABI, like a title: runtime, guest threads,
-# MMIO registers and a PM4 stream on a real D3D12 device, with no window
-# (REGPU_HEADLESS). ReGPU keeps one renderer per process and its threads run
+# rexgpu-regpu through the plugin ABI, like a title, on a real D3D12 device.
+# gpu.regpu_plugin_smoke: guest threads, MMIO registers, a PM4 stream and
+# shaded draws resolved to guest memory, with no window (REGPU_HEADLESS).
+# gpu.regpu_present: a frame swapped into a window the host owns, read back
+# through ReGPU's debug server. ReGPU keeps one renderer per process and its threads run
 # until the process ends, so this is its own executable with its own main.
-add_executable(regpu_tests plugin_smoke_test.cpp)
-target_include_directories(regpu_tests PRIVATE ${PROJECT_SOURCE_DIR}/include)
-target_link_libraries(regpu_tests PRIVATE rexruntime)
+add_executable(regpu_tests plugin_smoke_test.cpp ${PROJECT_SOURCE_DIR}/tests/gpu/gpu_fixture.cpp)
+target_include_directories(regpu_tests PRIVATE ${PROJECT_SOURCE_DIR}/include ${PROJECT_SOURCE_DIR}/tests/gpu)
+target_link_libraries(regpu_tests PRIVATE rexruntime fmt::fmt ws2_32)
 target_compile_options(regpu_tests PRIVATE
     -UTRACY_ENABLE -UREXGLUE_ENABLE_PROFILING
     -UREXGLUE_ENABLE_PERF_COUNTERS -UREXGLUE_PROFILE_GUEST_FUNCTIONS
@@ -21,8 +23,14 @@ add_custom_command(TARGET regpu_tests POST_BUILD
 )
 
 add_test(NAME gpu.regpu_plugin_smoke COMMAND regpu_tests)
-set_tests_properties(gpu.regpu_plugin_smoke PROPERTIES
+add_test(NAME gpu.regpu_present COMMAND regpu_tests --present)
+# Titles whose front buffer is smaller than 1280x720: the frame size follows VdSwap's.
+add_test(NAME gpu.regpu_present_1024x600 COMMAND regpu_tests --present 1024 600)
+add_test(NAME gpu.regpu_present_1152x640 COMMAND regpu_tests --present 1152 640)
+set_tests_properties(gpu.regpu_plugin_smoke gpu.regpu_present
+    gpu.regpu_present_1024x600 gpu.regpu_present_1152x640 PROPERTIES
     LABELS "gpu;regpu"
     TIMEOUT 120
     SKIP_RETURN_CODE 4
+    RUN_SERIAL TRUE
 )

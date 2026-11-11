@@ -99,6 +99,14 @@ void EnsureDevice()
     std::lock_guard lock(g_deviceMutex);
     if (g_device)
         return;
+    // The host's device and queue (Config::hostDevice / hostQueue): the frames go to its presenter.
+    if (const Settings& st = GetSettings(); st.hostDevice && st.hostQueue)
+    {
+        g_device = static_cast<ID3D12Device*>(st.hostDevice);
+        g_queue = static_cast<ID3D12CommandQueue*>(st.hostQueue);
+        Log("presenter: rendering on the host's D3D12 device and queue");
+        return;
+    }
     if (getenv("REGPU_D3D12_DEBUG"))
     {
         ComPtr<ID3D12Debug> debug;
@@ -397,8 +405,20 @@ void RenderThread()
 }
 }
 
+// The host presents (Host::presentFrame): ReGPU has no window or swap chain of its own.
+bool HostPresents()
+{
+    return regpu::GetHost().presentFrame && GetSettings().hostDevice && GetSettings().hostQueue;
+}
+
 void PresenterInit()
 {
+    if (HostPresents())
+    {
+        g_p.window = HWND(GetSettings().hostWindow); // (for keyboard focus only)
+        Log("presenter: the host presents ReGPU's frames");
+        return;
+    }
     if (getenv("REGPU_HEADLESS"))
         return;
     std::thread(RenderThread).detach();
@@ -502,6 +522,8 @@ void PresenterUseRenderer()
 
 bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, ID3D12Resource* overlay, uint32_t overlayW, uint32_t overlayH)
 {
+    if (HostPresents())
+        return RendererRecordHandoff(list, src);
     if (!g_p.ready)
         return false;
     const UINT i = g_p.swapChain->GetCurrentBackBufferIndex();
@@ -558,6 +580,11 @@ bool PresenterRecordCopy(ID3D12GraphicsCommandList* list, ID3D12Resource* src, I
 
 void PresenterPresent()
 {
+    if (HostPresents())
+    {
+        RendererHandOff();
+        return;
+    }
     // Vsync: wait for the display's refresh; off: present at once (tearing allowed).
     if (g_p.ready)
     {

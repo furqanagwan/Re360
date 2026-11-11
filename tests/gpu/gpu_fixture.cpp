@@ -47,7 +47,8 @@ constexpr uint32_t kCpRbWptr = 0x01C5;
 
 }
 
-std::unique_ptr<GpuFixture> GpuFixture::Create(std::string* error, CvarList cvars) {
+std::unique_ptr<GpuFixture> GpuFixture::Create(std::string* error, CvarList cvars,
+                                               std::string_view plugin, void* host_window) {
   static bool logging_initialized = [] {
     const char* log_file = std::getenv("REXGLUE_GPU_FIXTURE_LOG");
     rex::InitLogging(log_file && *log_file ? log_file : nullptr);
@@ -67,10 +68,14 @@ std::unique_ptr<GpuFixture> GpuFixture::Create(std::string* error, CvarList cvar
   }
 
   RuntimeConfig config;
-  config.graphics = system::LoadGpuPlugin("xenos", "d3d12");
+  config.graphics = system::LoadGpuPlugin(plugin, "d3d12");
   if (!config.graphics) {
-    *error = "the xenos GPU plugin could not be loaded";
+    *error = fmt::format("the {} GPU plugin could not be loaded", plugin);
     return nullptr;
+  }
+  fixture->plugin_runs_until_exit_ = plugin != system::kDefaultGpuPlugin;
+  if (host_window) {
+    config.graphics->SetHostWindow(host_window);
   }
 
   if (const char* cvars = std::getenv("REXGLUE_GPU_FIXTURE_CVARS"); cvars && *cvars) {
@@ -104,6 +109,9 @@ std::unique_ptr<GpuFixture> GpuFixture::Create(std::string* error, CvarList cvar
     return nullptr;
   }
   fixture->runtime_->graphics_system()->InitializeRingBuffer(fixture->ring_, kRingSizeLog2);
+  if (fixture->plugin_runs_until_exit_) {
+    fixture->runtime_->graphics_system()->SetInterruptCallback(0, 0);
+  }
 
   if (!fixture->Flush()) {
     *error = "the command processor did not start";
@@ -113,6 +121,11 @@ std::unique_ptr<GpuFixture> GpuFixture::Create(std::string* error, CvarList cvar
 }
 
 GpuFixture::~GpuFixture() {
+  if (plugin_runs_until_exit_) {
+    Runtime* still_running = runtime_.release();
+    (void)still_running;
+    return;
+  }
   runtime_.reset();
   std::error_code ec;
   std::filesystem::remove_all(root_, ec);
@@ -214,6 +227,9 @@ bool GpuFixture::Flush(std::chrono::milliseconds timeout) {
 }
 
 std::string GpuFixture::Metadata() const {
+  if (!runtime_->graphics_system()->provider()) {
+    return "the plugin owns its Direct3D 12 device";
+  }
   const auto& p = provider();
   return fmt::format(
       "vendor 0x{:04X}, driver {}, software {}, feature level 0x{:X}, shader model 0x{:X}, "

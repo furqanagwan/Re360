@@ -14,6 +14,7 @@
 #include <initializer_list>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -27,10 +28,13 @@ class GpuFixture {
  public:
   using CvarList = std::initializer_list<std::pair<const char*, const char*>>;
 
-  static std::unique_ptr<GpuFixture> Create(std::string* error, CvarList cvars = {});
+  static std::unique_ptr<GpuFixture> Create(std::string* error, CvarList cvars = {},
+                                            std::string_view plugin = "xenos",
+                                            void* host_window = nullptr);
   ~GpuFixture();
 
   memory::Memory* memory() const { return runtime_->memory(); }
+  system::IGraphicsSystem* graphics_system() const { return runtime_->graphics_system(); }
   const ui::d3d12::D3D12Provider& provider() const;
 
   uint32_t AllocPhysical(uint32_t size, uint32_t alignment = 0x1000);
@@ -66,6 +70,7 @@ class GpuFixture {
 
   std::filesystem::path root_;
   std::unique_ptr<Runtime> runtime_;
+  bool plugin_runs_until_exit_ = false;
   uint32_t ring_ = 0;
   uint32_t write_index_ = 0;
   uint32_t fence_address_ = 0;

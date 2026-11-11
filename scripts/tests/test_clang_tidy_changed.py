@@ -57,6 +57,27 @@ class ClangTidyChangedTests(unittest.TestCase):
                 status = tidy.main()
             return status, output.getvalue(), run.call_count
 
+    def test_regpu_renderer_is_left_out_but_its_plugin_is_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            build = Path(directory)
+            renderer = (Path.cwd() / 'src/regpu/gpu/renderer.cpp').resolve()
+            plugin = (Path.cwd() / 'src/regpu/plugin/graphics_system.cpp').resolve()
+            (build / 'compile_commands.json').write_text(json.dumps([
+                {'file': str(renderer)}, {'file': str(plugin)},
+            ]), encoding='utf-8')
+            diff = '\n'.join([
+                '+++ b/src/regpu/gpu/renderer.cpp', '@@ -1 +1 @@',
+                '+++ b/src/regpu/plugin/graphics_system.cpp', '@@ -1 +1 @@',
+            ])
+            result = subprocess.CompletedProcess([], 0, '', '')
+            with patch('sys.argv', ['clang_tidy_changed.py', '--build', str(build)]), \
+                    patch('sys.stdin', io.StringIO(diff)), \
+                    patch('sys.stdout', io.StringIO()), \
+                    patch.object(tidy.subprocess, 'run', return_value=result) as run:
+                self.assertEqual(tidy.main(), 0)
+            checked = [call.args[0][-1] for call in run.call_args_list]
+            self.assertEqual(checked, [str(plugin)])
+
     def test_diagnostic_failure_propagates_once_per_file(self):
         status, output, calls = self.run_check(
             1, '+++ b/src/core/example.cpp\n@@ -0,0 +1 @@\n')

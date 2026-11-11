@@ -34,7 +34,7 @@ Three tracks, in this order:
 | DXBC and DXIL shader paths | DXBC (SM 5.1) ships. Opt-in DXIL via Edge's SPIR-V translator and Mesa `spirv_to_dxil` (`gpu_shader_path=dxil`) | DXIL compiles on the player's PC; a cold start on Quantum of Solace stalled for up to 21.5 s |
 | Shipped shader cache (`docs/shader-cache.md`) | Ships recorded shader and pipeline records | Needs someone to play the game first, and still translates on the player's PC |
 | GPU plugin boundary (`include/rex/system/gpu_plugin.h`) | `IGraphicsSystem`, loaded from `rexgpu-<name>.dll`, ABI 2 | Two plugins exist: `xenos` and `regpu` |
-| `rexgpu-regpu` (`src/regpu`) | ReGPU behind the plugin interface: host surfaces for EDRAM, microcode to HLSL, FSR/DLSS, a memory scan for shaders at load | Runs a command stream in `gpu.regpu_plugin_smoke`; not yet run on a title here. Runtime FXC, no tessellation, memexport writes dropped, fixed 1280x720, no Guide overlay |
+| `rexgpu-regpu` (`src/regpu`) | ReGPU behind the plugin interface: host surfaces for EDRAM, microcode to HLSL, FSR/DLSS, a memory scan for shaders at load | Draws, resolves and presents in fixtures (`gpu.regpu_plugin_smoke`, `gpu.regpu_present`); not yet run on a title here. Runtime FXC, no tessellation, memexport writes dropped, fixed 1280x720, no Guide overlay |
 
 ## What "native GPU" can mean
 
@@ -107,7 +107,8 @@ Intel where available (ADR-007).
 
 Done: ReGPU is in the tree, `rexgpu-regpu` implements `IGraphicsSystem` on
 `regpu::driver`, maps the `0x7FC80000` register range and fills `regpu::Host`
-from the runtime's memory, threads and guest calls.
+from the runtime's memory, threads and guest calls. Fixtures draw from Xenos
+microcode, resolve to guest memory and present into a host-owned window.
 
 Still to do:
 

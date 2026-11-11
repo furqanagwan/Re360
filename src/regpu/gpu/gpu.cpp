@@ -935,6 +935,8 @@ uint32_t ExecutePacket(uint32_t ptr)
         if (count >= 2 && arg(0) == 0x53574150)
         {
             const uint64_t n = ++g_gpu.swaps;
+            if (count >= 4)
+                RendererSetGuestSize(arg(2), arg(3));
             PresentSwap(n, arg(1) & 0x1FFFF000);
             // The guest's VdSwap returned long ago; pacing the command processor here holds the
             // title back once the ring fills, which caps it the same way.
