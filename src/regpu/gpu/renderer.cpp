@@ -10902,8 +10902,7 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
         if (!noAliasedFill && (gpureg::Get(RB_MODECONTROL) & 7) == 5 && (depthControl & 7) == 7 && ((depthControl >> 4) & 7) == 7 &&
             ((gpureg::Get(RB_COLOR_INFO) ^ gpureg::Get(RB_DEPTH_INFO)) & 0xFFF) == 0)
         {
-            // A D24FS8 depth buffer stores 20e4 float depth (1.0 is 0xF00000), not 24-bit unorm:
-            // packed as unorm, Blood Stone's light buffer filled with 0xFFFFFF00 (yellow).
+            // A D24FS8 depth buffer stores 20e4 float depth (1.0 is 0xF00000), not 24-bit unorm.
             const bool floatDepth = (gpureg::Get(RB_DEPTH_INFO) >> 16) & 1;
             uint32_t depth24 = floatDepth ? EncodeDepth20e4(1.0f) : 0xFFFFFF;
             if ((initiator & 0x3F) == 8 && !vs.info.vertexFetchConstants.empty())
@@ -10915,8 +10914,15 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
                     const uint32_t zb = __builtin_bswap32(GuestPtr<uint32_t>(GpuPhysToGuest(d0 & 0xFFFFFFFC))[2]);
                     float z;
                     memcpy(&z, &zb, 4);
-                    if (z >= 0.0f && z <= 1.0f)
+                    // Depth is clamped to [0, 1] as the hardware does: a reverse-Z clear's rectangle comes
+                    // with z a rounding error below 0 (Blood Stone: -3.7e-9), which is depth 0. Taken as
+                    // unreadable, it became depth 1: Blood Stone's light buffer started at 0xFFFFFF00,
+                    // every pixel fully lit and blue-less (no shadows, a yellow cast).
+                    if (std::isfinite(z))
+                    {
+                        z = std::clamp(z, 0.0f, 1.0f);
                         depth24 = floatDepth ? EncodeDepth20e4(z) : std::min<uint32_t>(uint32_t(double(z) * 16777216.0), 0xFFFFFF);
+                    }
                 }
             }
             const uint32_t bits = depth24 << 8 | (gpureg::Get(RB_STENCILREFMASK) & 0xFF);
