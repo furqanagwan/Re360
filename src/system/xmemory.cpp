@@ -28,6 +28,8 @@
 
 #include <rex/system/xtypes.h>
 
+#include <windows.h>
+
 REXCVAR_DEFINE_BOOL(protect_zero, true, "Memory", "Protect the zero page from reads and writes")
     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
@@ -1148,7 +1150,16 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
         rex::memory::AllocFixed(TranslateRelative(start_page_number << page_size_shift_),
                                 page_count << page_size_shift_, alloc_type, ToPageAccess(protect));
     if (!result) {
-      REXSYS_ERROR("BaseHeap::AllocFixed failed to alloc range from host");
+      const DWORD error = GetLastError();
+      MEMORY_BASIC_INFORMATION info{};
+      VirtualQuery(TranslateRelative(start_page_number << page_size_shift_), &info, sizeof(info));
+      REXSYS_ERROR(
+          "BaseHeap::AllocFixed failed to alloc range from host: guest {:08X}, {:X} bytes, {} "
+          "protect {:X}, Windows error {}; the host pages: state {:X} protect {:X} type {:X} "
+          "region {:X} bytes",
+          heap_base_ + (start_page_number << page_size_shift_), page_count << page_size_shift_,
+          alloc_type == rex::memory::AllocationType::kCommit ? "commit" : "reserve", protect, error,
+          info.State, info.Protect, info.Type, info.RegionSize);
       return false;
     }
   }
