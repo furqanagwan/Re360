@@ -156,9 +156,51 @@ function(rexglue_configure_target target_name)
                 $<TARGET_FILE_DIR:${target_name}>
             VERBATIM
         )
+        if(_plugin STREQUAL "regpu")
+            _rexglue_stage_regpu_dxil(${target_name})
+        endif()
         unset(_plugin_target)
     endforeach()
 
+endfunction()
+
+#==========================================================
+# ReGPU's DXIL shader pack (REGPU_DXIL_PACK, docs/regpu.md)
+#
+# The pinned dxcompiler.dll and dxil.dll go beside the executable, and
+# <target>_regpu_shaders builds regpu_shaders\ there from the shader cache a
+# run left (REGPU_SHADER_CACHE, else %LOCALAPPDATA%\<target>\cache\regpu\
+# shadercache). The pack holds the game's shaders: keep it out of the
+# repository, like the game.
+#==========================================================
+function(_rexglue_stage_regpu_dxil target_name)
+    if(NOT REGPU_DXIL_PACK)
+        return()
+    endif()
+    if(TARGET regpu_dis)
+        set(_dis $<TARGET_FILE:regpu_dis>)
+        set(_files ${REGPU_DXC_FILES})
+    else()
+        set(_dis "${REXGLUE_BIN_DIR}/regpu_dis.exe")
+        set(_files "${REXGLUE_BIN_DIR}/dxcompiler.dll" "${REXGLUE_BIN_DIR}/dxil.dll")
+    endif()
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_files} $<TARGET_FILE_DIR:${target_name}>
+        VERBATIM
+    )
+    if(REGPU_SHADER_CACHE)
+        set(_cache "${REGPU_SHADER_CACHE}")
+    else()
+        file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}/${target_name}/cache/regpu/shadercache" _cache)
+    endif()
+    add_custom_target(${target_name}_regpu_shaders
+        COMMAND "${_dis}" --pack "$<TARGET_FILE_DIR:${target_name}>/regpu_shaders" "${_cache}"
+        COMMENT "Building ${target_name}'s ReGPU shader pack from ${_cache}"
+        VERBATIM
+    )
+    if(TARGET regpu_dis)
+        add_dependencies(${target_name}_regpu_shaders regpu_dis)
+    endif()
 endfunction()
 
 # Embeds native Windows resources independently of the runtime window icon

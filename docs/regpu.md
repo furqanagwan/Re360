@@ -82,8 +82,9 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   its first frame wrong and the rest right. Front buffers above 1280x720 are
   untested (see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
 - **No tessellation; memexport writes are dropped.**
-- **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`), not
-  at build time: at setup when earlier runs stored them, else during play.
+- **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`) by
+  default: at setup when earlier runs stored them, else during play. The
+  opt-in DXIL shader pack below builds them ahead of time.
 - **One renderer per process, and no teardown.** Its threads run until the
   process exits, which is how titles exit today.
 - **Its own support code.** ReGPU still carries its own logger, PNG writer,
@@ -91,6 +92,63 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   small, and replacing them is safe only once a game runs on it here.
 - **The debug server's controller** (`regpuctl.py press`) is not merged into
   the runtime's input yet.
+
+## DXIL shader pack (opt-in)
+
+`REGPU_DXIL=1` makes every translated shader DXIL, compiled with DXC instead
+of FXC. A pipeline takes DXBC or DXIL for all its stages, never a mix, so it is
+one mode for the whole run. Each shader comes from, in order:
+
+1. the shader pack: `regpu_shaders\<key>.dxil` beside the game executable
+   (`REGPU_SHADER_PACK` moves it), built ahead of time;
+2. the shader cache (`shadercache\<key>.dxil`);
+3. DXC on the player's PC, for a shader the pack doesn't have.
+
+The key is a hash of the translated HLSL, so a translator change misses the
+pack and falls back to step 3 rather than loading stale code.
+The game needs `dxcompiler.dll` and `dxil.dll` beside it (`dxil.dll` may
+instead be in its `D3D12` folder); `dxil.dll` signs the output, and D3D12
+rejects unsigned DXIL. Without `dxcompiler.dll` the run stays on FXC.
+
+Configure the SDK with `-DREGPU_DXIL_PACK=ON`. It downloads DXC 1.8.2502.8
+(pinned in `cmake/rexglue_dxc.cmake`, the version Microsoft's PC backward
+compatibility ships) and installs `regpu_dis` with both DLLs in `bin`. A title
+that stages the `regpu` plugin then gets the two DLLs beside its executable
+and a `<title>_regpu_shaders` target that builds the pack from the shader cache
+a run left (`%LOCALAPPDATA%\<title>\cache\regpu\shadercache`, or
+`-DREGPU_SHADER_CACHE=<folder>`):
+
+```powershell
+cmake --build out/build/release --target bloodstone_regpu_shaders
+```
+
+Play with `REGPU_DXIL=1` after a pack build and the shaders the pack lacked
+are recorded in the cache; the next pack build includes them.
+`regpu_dis --pack <pack folder> <cache folder>` does the same by hand.
+
+Blood Stone, 2026-11-11: 222 shaders pack in 18 s (5.6 MB; FXC's cache is
+14 MB and takes 119 s optimised). With the pack, a 3-minute run in the Istanbul
+cistern loaded every shader from it at setup and compiled 5 with DXC during
+play, at 30 fps with no failed pipelines; the picture looks as with FXC. The
+pack is built from the player's own game files and is never committed.
+
+DXC compiles with strict IEEE arithmetic (`-Gis`). `regpu_shadercmp <cache
+folder>` checks the two compilers agree: it draws every pixel shader twice
+with identical inputs (fixed pseudo-random constants, noise textures, varying
+interpolators), as FXC builds it at run time and as the pack holds it, and
+compares the 32-bit float pictures. On Blood Stone's 190 pixel shaders:
+
+| DXIL build | Identical | Within 0.1% | Differ |
+| --- | --- | --- | --- |
+| DXC default (fused, reassociated arithmetic) | 61 | 95 | 34 |
+| DXC `-Gis` | 136 | 54 | 0 |
+| FXC optimised, as a control (`--control`) | 136 | 54 | 0 |
+
+The default build's differences came from multiply-adds fused one ulp
+differently, which the step functions in translated shaders (`x >= 0`) turn
+into whole regions of a different colour. With `-Gis` DXIL agrees with FXC as
+closely as FXC's two builds agree with each other. Vertex shaders aren't
+compared yet.
 
 ## Game-specific fixes
 

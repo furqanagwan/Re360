@@ -8,6 +8,10 @@ set(REXGLUE_SHARE_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_DATADIR@/rexglue")
 set(REXGLUE_SHADER_DXIL @REXGLUE_SHADER_DXIL@)
 set(REXGLUE_D3D12_SDK_VERSION "@REXGLUE_D3D12_SDK_VERSION@")
 
+# Built with ReGPU's DXIL shader packs: regpu_dis and the DXC redistributable in bin.
+set(REGPU_DXIL_PACK @REGPU_DXIL_PACK@)
+set(REXGLUE_BIN_DIR "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_BINDIR@")
+
 include(CMakeFindDependencyMacro)
 
 include("${CMAKE_CURRENT_LIST_DIR}/rexglue_helpers.cmake")
