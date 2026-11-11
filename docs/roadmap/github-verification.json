@@ -174,7 +174,8 @@
       "body_matches": true,
       "labels_match": true,
       "state": "OPEN",
-      "body_sha256": "95ec988c24b00eb3b958b88447b19a66ffb8e37bbb7a1ae5f34845cbc5373df8",
+      "body_sha256": "81e1e4c2b170b41b59b6f3dba6c8d1b2c8eb6311102078cd0909ee529f97d803",
+      "reverified_at": "2026-11-11",
       "dependencies": [
         1
       ]
