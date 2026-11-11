@@ -1,9 +1,12 @@
 // xenos_dis [--hlsl] <shader.bin>...: disassemble captured Xenos microcode
 // (vs_*.bin / ps_*.bin from REGPU_DUMP_SHADERS); --hash prints each file with a hash of its
 // translated HLSL (no compile: shaders with the same hash share bytecode); --hlsl translates and
-// compiles each one instead and reports the result.
+// compiles each one instead and reports the result; --write DIR saves each translation as
+// DIR/<file name>.hlsl instead of compiling it (vertex shaders need REGPU_VERTEX_STAGE=1), for
+// compiling them with another compiler (DXC).
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -18,9 +21,17 @@
 int main(int argc, char** argv)
 {
     bool hlsl = false, print = false, hashOnly = false;
+    std::filesystem::path writeDir;
     int failures = 0;
     for (int i = 1; i < argc; i++)
     {
+        if (!strcmp(argv[i], "--write") && i + 1 < argc)
+        {
+            hlsl = true;
+            writeDir = argv[++i];
+            std::filesystem::create_directories(writeDir);
+            continue;
+        }
         if (!strcmp(argv[i], "--hlsl"))
         {
             hlsl = true;
@@ -94,6 +105,11 @@ int main(int argc, char** argv)
         }
         if (print)
             printf("%s\n", t.hlsl.c_str());
+        if (!writeDir.empty())
+        {
+            std::ofstream(writeDir / (std::filesystem::path(name).filename().string() + ".hlsl"), std::ios::binary) << t.hlsl;
+            continue;
+        }
         ID3DBlob* code = nullptr;
         ID3DBlob* errors = nullptr;
         const D3D_SHADER_MACRO vertexStage[] = { { "REGPU_VERTEX_STAGE", "1" }, { nullptr, nullptr } };
