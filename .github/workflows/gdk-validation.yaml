@@ -51,8 +51,13 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+      # LLVM pinned: the runner's preinstalled 20.1.8 crashes in C++ exception
+      # dispatch under AddressSanitizer (four unit tests that throw across
+      # rexruntime.dll); 22.1.8 passes them. See research/language/asan-llvm-version.md.
       - name: Install build tools
-        run: choco install llvm cmake ninja -y
+        run: |
+          choco upgrade llvm --version=22.1.8 --allow-downgrade -y
+          choco install cmake ninja -y
       - name: Select the pinned PC GDK
         shell: pwsh
         run: |
@@ -65,6 +70,7 @@ jobs:
           $vsWhere = "${env:ProgramFiles(x86)}/Microsoft Visual Studio/Installer/vswhere.exe"
           $vsInstall = & $vsWhere -latest -property installationPath
           & "$vsInstall/Common7/Tools/Launch-VsDevShell.ps1" -Arch amd64 -HostArch amd64 -SkipAutomaticLocation
+          clang++ --version
           cmake --preset win-amd64-gdk-asan
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           cmake --build --preset win-amd64-gdk-asan-release --target unit_tests --parallel 4
