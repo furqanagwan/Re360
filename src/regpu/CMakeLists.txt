@@ -17,6 +17,7 @@ set(REGPU_SOURCES
     png.cpp
     settings.cpp
     gpu/d3dcompiler.cpp
+    gpu/dxc.cpp
     gpu/frame.cpp
     gpu/gpu.cpp
     gpu/hlsl.cpp

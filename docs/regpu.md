@@ -82,8 +82,9 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   its first frame wrong and the rest right. Front buffers above 1280x720 are
   untested (see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
 - **No tessellation; memexport writes are dropped.**
-- **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`), not
-  at build time: at setup when earlier runs stored them, else during play.
+- **Shaders compile on the player's PC** with FXC (`d3dcompiler_47.dll`) by
+  default: at setup when earlier runs stored them, else during play. The
+  opt-in DXIL shader pack below builds them ahead of time.
 - **One renderer per process, and no teardown.** Its threads run until the
   process exits, which is how titles exit today.
 - **Its own support code.** ReGPU still carries its own logger, PNG writer,
@@ -91,6 +92,36 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   small, and replacing them is safe only once a game runs on it here.
 - **The debug server's controller** (`regpuctl.py press`) is not merged into
   the runtime's input yet.
+
+## DXIL shader pack (opt-in)
+
+`REGPU_DXIL=1` makes every translated shader DXIL, compiled with DXC instead
+of FXC. A pipeline takes DXBC or DXIL for all its stages, never a mix, so it is
+one mode for the whole run. Each shader comes from, in order:
+
+1. the shader pack: `regpu_shaders\<key>.dxil` beside the game executable
+   (`REGPU_SHADER_PACK` moves it), built ahead of time;
+2. the shader cache (`shadercache\<key>.dxil`);
+3. DXC on the player's PC, for a shader the pack doesn't have.
+
+The key is a hash of the translated HLSL, so a translator change misses the
+pack and falls back to step 3 rather than loading stale code.
+The game needs the Windows SDK's `dxcompiler.dll` and `dxil.dll` beside it;
+`dxil.dll` signs the output, and D3D12 rejects unsigned DXIL. Without
+`dxcompiler.dll` the run stays on FXC.
+
+Build a pack from a game's shader cache, with the SDK's `x64` bin folder on
+`PATH`:
+
+```powershell
+regpu_dis --pack "<game folder>\regpu_shaders" "<cache>\regpu\shadercache\*.ucode"
+```
+
+Blood Stone, 2026-11-11: 222 shaders pack in 18 s (5.6 MB; FXC's cache is
+14 MB and takes 119 s optimised). With the pack, a 3-minute run in the Istanbul
+cistern loaded every shader from it at setup and compiled 5 with DXC during
+play, at 30 fps with no failed pipelines; the picture looks as with FXC. The
+pack is built from the player's own game files and is never committed.
 
 ## Game-specific fixes
 

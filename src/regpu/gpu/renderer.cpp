@@ -36,6 +36,7 @@
 #include <wrl/client.h>
 
 #include "gpu/hlsl.h"
+#include "gpu/dxc.h"
 #include "gpu/dlss.h"
 #include "gpu/fsr3.h"
 #include "gpu/recorded_list.h"
@@ -3614,7 +3615,7 @@ const bool g_optimizeShaders = getenv("REGPU_OPTIMIZE_SHADERS") != nullptr;
 std::filesystem::path ShaderCachePath(uint64_t key, bool optimized = false)
 {
     char name[40];
-    snprintf(name, sizeof(name), optimized ? "%016llx.o.dxbc" : "%016llx.dxbc", (unsigned long long)key);
+    snprintf(name, sizeof(name), UseDxil() ? "%016llx.dxil" : optimized ? "%016llx.o.dxbc" : "%016llx.dxbc", (unsigned long long)key);
     return RegpuUserDir() / "shadercache" / name;
 }
 
@@ -3683,9 +3684,31 @@ struct ShaderOptimizer
 } g_optimizer;
 
 // The stored bytecode for cs.cacheKey, optimised first; an unoptimised one is queued for its
-// optimised build.
+// optimised build. With REGPU_DXIL, the shader pack's DXIL (built ahead of time, optimised)
+// comes first, then the cache's.
 bool LoadCachedBytecode(CompiledShader& cs)
 {
+    if (UseDxil())
+    {
+        static std::atomic<uint32_t> packHits{ 0 };
+        const std::filesystem::path paths[] = { ShaderPackPath(cs.cacheKey), ShaderCachePath(cs.cacheKey) };
+        for (int i = 0; i < 2; i++)
+        {
+            std::ifstream in{ paths[i], std::ios::binary | std::ios::ate };
+            if (!in)
+                continue;
+            const auto size = size_t(in.tellg());
+            if (!size || FAILED(D3DCreateBlob(size, &cs.code)))
+                continue;
+            in.seekg(0);
+            in.read(static_cast<char*>(cs.code->GetBufferPointer()), std::streamsize(size));
+            if (i == 0)
+                if (const uint32_t n = ++packHits; n == 1 || n % 100 == 0)
+                    Log("renderer: %u shaders from the shader pack (%s)", n, ShaderPackDir().string().c_str());
+            return true;
+        }
+        return false;
+    }
     for (const bool optimized : { true, false })
     {
         if (optimized && !g_optimizeShaders)
@@ -3814,13 +3837,17 @@ struct ShaderCompiler
         // The translated source picks its sampling form per stage (see hlsl.cpp: a vertex
         // shader cannot sample with an implicit LOD).
         const D3D_SHADER_MACRO vertexStage[] = { { "REGPU_VERTEX_STAGE", "1" }, { nullptr, nullptr } };
-        const HRESULT hr = D3DCompile(cs.info.hlsl.data(), cs.info.hlsl.size(), nullptr, cs.pixel ? nullptr : vertexStage, nullptr, "main",
-            cs.pixel ? "ps_5_1" : "vs_5_1", D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES, 0, &cs.code, &errors);
+        // REGPU_DXIL: DXC instead (a shader the pack didn't have), lightly optimised: it is fast enough.
+        std::string dxcErrors;
+        const HRESULT hr = UseDxil() ? (CompileDxil(cs.info.hlsl, cs.pixel, false, &cs.code, &dxcErrors) ? S_OK : E_FAIL)
+                                     : D3DCompile(cs.info.hlsl.data(), cs.info.hlsl.size(), nullptr, cs.pixel ? nullptr : vertexStage, nullptr, "main",
+                                           cs.pixel ? "ps_5_1" : "vs_5_1", D3DCOMPILE_SKIP_OPTIMIZATION | D3DCOMPILE_ENABLE_UNBOUNDED_DESCRIPTOR_TABLES, 0,
+                                           &cs.code, &errors);
         const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         if (FAILED(hr))
         {
             Log("renderer: %s %016llx failed to compile:\n%s", cs.pixel ? "ps" : "vs", (unsigned long long)cs.hash,
-                errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
+                UseDxil() ? dxcErrors.c_str() : errors ? static_cast<const char*>(errors->GetBufferPointer()) : "?");
             cs.state.store(CompiledShader::Failed, std::memory_order_release);
             return;
         }
@@ -3829,7 +3856,7 @@ struct ShaderCompiler
             Log("renderer: %s %016llx compiled in %.0f ms (background)", cs.pixel ? "ps" : "vs", (unsigned long long)cs.hash, ms);
         std::ofstream(ShaderCachePath(cs.cacheKey), std::ios::binary)
             .write(static_cast<const char*>(cs.code->GetBufferPointer()), std::streamsize(cs.code->GetBufferSize()));
-        if (g_optimizeShaders)
+        if (g_optimizeShaders && !UseDxil())
             g_optimizer.Push(cs.cacheKey, cs.pixel, cs.info.hlsl);
         cs.state.store(CompiledShader::Ready, std::memory_order_release);
     }
@@ -4136,7 +4163,7 @@ const CompiledShader& GetShaderLocked(uint64_t hash, const std::vector<uint32_t>
             Log("debug: ps alias %016llx returns %s", (unsigned long long)hash, expr.c_str());
         }
     }
-    cs.cacheKey = Fnv(cs.info.hlsl.data(), cs.info.hlsl.size(), pixel ? 1 : 2);
+    cs.cacheKey = ShaderSourceKey(cs.info.hlsl, pixel);
     if (auto b = g_bytecode.find(cs.cacheKey); b != g_bytecode.end())
     {
         cs.code = b->second;
@@ -4262,7 +4289,7 @@ const CompiledShader* MotionShaderLookup(const CompiledShader& base)
         cs.state = CompiledShader::Failed;
         return nullptr;
     }
-    cs.cacheKey = Fnv(cs.info.hlsl.data(), cs.info.hlsl.size(), source.pixel ? 1 : 2);
+    cs.cacheKey = ShaderSourceKey(cs.info.hlsl, source.pixel);
     if (auto b = g_bytecode.find(cs.cacheKey); b != g_bytecode.end())
     {
         cs.code = b->second;

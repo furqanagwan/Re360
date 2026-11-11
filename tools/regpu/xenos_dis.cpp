@@ -3,7 +3,10 @@
 // translated HLSL (no compile: shaders with the same hash share bytecode); --hlsl translates and
 // compiles each one instead and reports the result; --write DIR saves each translation as
 // DIR/<file name>.hlsl instead of compiling it (vertex shaders need REGPU_VERTEX_STAGE=1), for
-// compiling them with another compiler (DXC).
+// compiling them with another compiler (DXC); --pack DIR compiles each one with DXC (optimised) into
+// DIR/<key>.dxil, the shader pack REGPU_DXIL=1 loads (regpu_shaders beside the game, or
+// REGPU_SHADER_PACK). Run it over the shader cache's *.ucode files; dxcompiler.dll and dxil.dll
+// must be beside this tool or on the path.
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -15,16 +18,24 @@
 #include <d3dcompiler.h>
 #include <windows.h>
 
+#include "gpu/dxc.h"
 #include "gpu/hlsl.h"
 #include "gpu/ucode.h"
 
 int main(int argc, char** argv)
 {
     bool hlsl = false, print = false, hashOnly = false;
-    std::filesystem::path writeDir;
-    int failures = 0;
+    std::filesystem::path writeDir, packDir;
+    int failures = 0, packed = 0;
     for (int i = 1; i < argc; i++)
     {
+        if (!strcmp(argv[i], "--pack") && i + 1 < argc)
+        {
+            hlsl = true;
+            packDir = argv[++i];
+            std::filesystem::create_directories(packDir);
+            continue;
+        }
         if (!strcmp(argv[i], "--write") && i + 1 < argc)
         {
             hlsl = true;
@@ -105,6 +116,26 @@ int main(int argc, char** argv)
         }
         if (print)
             printf("%s\n", t.hlsl.c_str());
+        if (!packDir.empty())
+        {
+            char file[40];
+            snprintf(file, sizeof(file), "%016llx.dxil", (unsigned long long)ShaderSourceKey(t.hlsl, pixel));
+            const auto path = packDir / file;
+            if (std::filesystem::exists(path))
+                continue; // a patched copy with the same translation
+            ID3DBlob* code = nullptr;
+            std::string errors;
+            if (!CompileDxil(t.hlsl, pixel, true, &code, &errors))
+            {
+                printf("FAIL dxc %s:\n%s\n", argv[i], errors.c_str());
+                failures++;
+                continue;
+            }
+            std::ofstream(path, std::ios::binary).write(static_cast<const char*>(code->GetBufferPointer()), std::streamsize(code->GetBufferSize()));
+            code->Release();
+            packed++;
+            continue;
+        }
         if (!writeDir.empty())
         {
             std::ofstream(writeDir / (std::filesystem::path(name).filename().string() + ".hlsl"), std::ios::binary) << t.hlsl;
@@ -123,5 +154,7 @@ int main(int argc, char** argv)
         else
             printf("ok   %s (%zu bytes DXBC)\n", argv[i], code->GetBufferSize());
     }
+    if (!packDir.empty())
+        printf("%d shaders packed into %s, %d failed\n", packed, packDir.string().c_str(), failures);
     return failures;
 }
