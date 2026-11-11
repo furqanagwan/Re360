@@ -6006,7 +6006,42 @@ struct IndexListEntry
     std::vector<uint32_t> list;
     uint64_t frame = ~0ull; // the frame `offset` belongs to
     UINT64 offset = 0;
+    // The vertices the list reaches, for copying only that part of a vertex buffer; plain is false when an
+    // entry carries the rectangle or point bits (29-31: the vertex shader decodes those itself).
+    uint32_t lowest = 0, highest = 0;
+    bool plain = false;
 };
+
+// Whether a fetch's reach expression is monotonic in the vertex index: the index appears once, under
+// add, multiply, min, max (by constants: an index used once leaves the other side constant), floor,
+// trunc, round or negate. Then its values at the lowest and highest index bound all the others.
+bool ListReachMonotonic(const std::vector<TranslatedShader::ReachNode>& nodes, uint32_t root)
+{
+    int uses = 0;
+    std::vector<uint32_t> stack{ root };
+    while (!stack.empty())
+    {
+        const uint32_t n = stack.back();
+        stack.pop_back();
+        if (n >= nodes.size())
+            return false;
+        switch (nodes[n].op)
+        {
+        case ReachVertex: uses++; break;
+        case ReachConst: break;
+        case ReachAdd:
+        case ReachMul:
+        case ReachMax:
+        case ReachMin: stack.push_back(nodes[n].a); stack.push_back(nodes[n].b); break;
+        case ReachFloor:
+        case ReachTrunc:
+        case ReachNeg:
+        case ReachRound: stack.push_back(nodes[n].a); break;
+        default: return false; // ReachAbs and anything new
+        }
+    }
+    return uses == 1;
+}
 
 IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
 {
@@ -6037,6 +6072,20 @@ IndexListEntry* CachedIndexList(uint32_t initiator, uint32_t dmaBase, uint32_t d
         e.sample = sample;
         e.frame = ~0ull;
         e.ok = BuildIndexList(initiator, dmaBase, dmaSize, e.list);
+        // (Computed when the list is built: a list is reused by every draw of it until it changes.)
+        e.plain = e.ok && !e.list.empty();
+        e.lowest = ~0u;
+        e.highest = 0;
+        for (const uint32_t v : e.list)
+        {
+            if (v >> 29)
+            {
+                e.plain = false;
+                break;
+            }
+            e.lowest = std::min(e.lowest, v);
+            e.highest = std::max(e.highest, v);
+        }
     }
     return e.ok ? &e : nullptr;
 }
@@ -10382,6 +10431,49 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
             if (bounded && reach && reach < bytes)
                 copyBytes = uint32_t(reach);
         }
+        // An indexed draw whose indices the CPU expanded (CachedIndexList) reads only the vertices from its
+        // lowest index to its highest. A buffer the game rewrites as it streams geometry has to be copied,
+        // and copied whole for each draw it was 12.5 MB at a time: Quantum of Solace filled the 2 GB upload
+        // ring with one buffer's copies and dropped draws. Where each fetch's index is the vertex index
+        // through order-keeping arithmetic (ListReachMonotonic), only [lowest, highest] is copied and the
+        // fetch base moves back by what was skipped, so the shader's addresses land on the copy.
+        // REGPU_NO_LIST_REACH=1: copied whole (A/B).
+        uint32_t skipBytes = 0;
+        if (static LiveSwitch noListReach("REGPU_NO_LIST_REACH"); !noListReach && indexSource != 2 && indexEntry && indexEntry->plain &&
+            !vs.info.vertexFetchReach.empty() && bytes > 16384)
+        {
+            auto constant = [](uint32_t reg, uint32_t comp) { return RegFloat(gpureg::AluConstants + reg * 4 + comp); };
+            uint64_t low = ~0ull, high = 0;
+            bool bounded = false;
+            for (const auto& [c, stride, offset, node] : vs.info.vertexFetchReach)
+            {
+                if (c != k)
+                    continue;
+                if (node == ~0u || !ListReachMonotonic(vs.info.reachNodes, node))
+                {
+                    bounded = false;
+                    break;
+                }
+                const float a = EvalReachNode(vs.info.reachNodes, node, float(indexEntry->lowest), constant);
+                const float b = EvalReachNode(vs.info.reachNodes, node, float(indexEntry->highest), constant);
+                const float least = std::min(a, b), most = std::max(a, b);
+                if (!(least >= 0.0f && most < 16777216.0f))
+                {
+                    bounded = false;
+                    break;
+                }
+                // A vertex either side, for float rounding.
+                const uint64_t first = uint64_t(least) > 0 ? uint64_t(least) - 1 : 0;
+                low = std::min<uint64_t>(low, (first * stride + offset) * 4);
+                high = std::max<uint64_t>(high, ((uint64_t(most) + 2) * stride + offset + 4) * 4);
+                bounded = true;
+            }
+            if (bounded && low < high && high <= copyBytes)
+            {
+                skipBytes = uint32_t(low) & ~3u;
+                copyBytes = uint32_t(high) - skipBytes;
+            }
+        }
         if (static LiveSwitch traceBig("REGPU_TRACE_BIGCOPY"); traceBig && copyBytes >= (256u << 10))
         {
             static std::atomic<uint32_t> n{ 0 };
@@ -10389,14 +10481,16 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
                 Log("bigcopy: vf%u %08X %u bytes vs %016llx prim %u count %u src %u dma %08X size %u", k, address, copyBytes,
                     (unsigned long long)C().vsHash, prim, indexCount, indexSource, dmaBase, dmaSize & 0xFFFFFF);
         }
-        const UINT64 dataOffset = UploadGuest(GpuPhysToGuest(address), copyBytes);
+        const UINT64 dataOffset = UploadGuest(GpuPhysToGuest(address) + skipBytes, copyBytes);
         if (dataOffset == ~0ull)
         {
             TraceSkip("ring full", initiator);
             g_r.skippedThisFrame++;
             return;
         }
-        vc->vf[k][0] = uint32_t(dataOffset);
+        // (Wraps below zero when the copy skipped more than its ring offset: the shader adds at least
+        // skipBytes back, in the same 32-bit arithmetic.)
+        vc->vf[k][0] = uint32_t(dataOffset) - skipBytes;
         vc->vf[k][1] = d1 & 3;
         vc->vf[k][3] = noBounds ? ~0u : bytes / 4;
     }
