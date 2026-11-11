@@ -1,4 +1,4 @@
-# ADR-018: Re360 is one repository with two GPU plugins
+# ADR-018: Re360 is one repository: recompiler, runtime, two GPU plugins and the Guide
 
 Date: 2026-11-10. Status: accepted owner direction. Implemented: the merge, the
 `rexgpu-regpu` plugin and its smoke test. Not yet done: a title running on
@@ -22,7 +22,10 @@ levels the plan describes.
 
 1. **One repository.** ReGPU's history is merged into this one. Its renderer
    lives in `src/regpu`, its API in `include/regpu`, its tools in `tools/regpu`.
-   There is no ReGPU submodule.
+   The Xbox Guide's history followed on 2026-11-11 (superseding ADR-013): the XUI
+   runtime and the Guide live in `src/xbox`, with no submodule. Their copies of
+   the licence, format rules, ADR-011 and the Guide documentation were dropped
+   for this repository's; the newer Guide documentation replaced the stale one.
 2. **Two GPU plugins behind one interface.** `rexgpu-xenos` stays the default
    and the reference image. `rexgpu-regpu` is opt-in with `gpu_plugin=regpu`.
    Both implement `IGraphicsSystem`; a run uses one or the other, never both.

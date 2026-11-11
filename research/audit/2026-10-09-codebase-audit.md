@@ -4,7 +4,7 @@ Goal: anyone, human or agent, can find their way around these repositories
 and change them safely. The standard is clear names, no comments,
 modern C++, small files, and knowledge kept in `research/`.
 
-Scope: `rexglue-sdk` (with its `thirdparty/xbox` submodule, then named `xbox-guide`), `xbox`
+Scope: `rexglue-sdk` (with its thirdparty/xbox (a submodule until 2026-11-11) submodule, then named `xbox-guide`), `xbox`
 and `007`. The `xenia-edge` fork is a reference and stays as upstream has it.
 
 ## Summary

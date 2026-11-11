@@ -36,9 +36,11 @@ requires a shader architecture decision and does not imply a Vulkan backend.
   (`gpu_plugin=regpu`). Read `docs/regpu.md` and `docs/regpu-debugging.md`
   before changing it. It keeps its own style and comments and stays
   game-neutral; `src/regpu/plugin` is SDK code and follows the rules below.
-* `thirdparty/xbox`: pinned [Xbox repository](https://github.com/furqanagwan/xbox),
-  owning Guide/XUI sources, headers, tests and Guide issues. SDK guest services
-  and CLI/title integration remain here; see `docs/xbox-guide-extraction.md`.
+* `src/xbox`: the Xbox 360 interface: the XUI scene runtime (`src/xbox/ui/xui`)
+  and the Guide (`src/xbox/ui/guide`), with their tests, compiled into
+  rexruntime. Keep the public include paths (`<rex/ui/xui/...>`,
+  `<rex/ui/guide/...>`) stable. See `docs/xbox-guide.md`. Never commit console
+  updates or assets extracted from them.
 * `src/audio`, `src/input`, `src/filesystem`, `src/core`: guest services/host adapters.
 * `src/rexglue`, `resources`: CLI and generated project templates.
 * `tests/unit`, `tests/ppc`: Catch2 unit and generated PPC instruction tests.

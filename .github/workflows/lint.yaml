@@ -10,9 +10,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - name: Initialize Guide sources for documentation checks
-        run: git submodule update --init --depth 1 thirdparty/xbox
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'

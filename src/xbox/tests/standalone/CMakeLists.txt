@@ -1,5 +1,0 @@
-add_executable(xbox_ui_core_tests core_test.cpp)
-target_link_libraries(xbox_ui_core_tests PRIVATE xbox::ui_core Catch2::Catch2WithMain)
-target_include_directories(xbox_ui_core_tests PRIVATE ../../ui/xui/tests)
-add_test(NAME xbox.ui_core COMMAND xbox_ui_core_tests)
-set_tests_properties(xbox.ui_core PROPERTIES TIMEOUT 60)

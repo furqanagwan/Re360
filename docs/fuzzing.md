@@ -20,8 +20,7 @@ configuring copies the compiler's copy next to the built programs.
 | `stfs_fuzzer` | STFS and SVOD packages | `StfsContainerDevice` |
 | `xui_fuzzer` | XUIZ packages, XUIS string tables, XUR scenes | `Package::Parse`, `ParseStringTable`, `ParseXur` |
 
-`xui_fuzzer` lives in the [Xbox repository](https://github.com/furqanagwan/xbox)
-under `ui/xui/fuzz`, and the SDK builds it from `thirdparty/xbox`.
+`xui_fuzzer` lives with the XUI sources in `src/xbox/ui/xui/fuzz`.
 
 `fuzz_seeds` and `xui_fuzz_seeds` write small synthetic seed inputs, built the
 same way as the unit tests. No game data is used or needed.

@@ -1,8 +1,7 @@
 # Xbox guide
 
-The implementation and Guide issues are maintained in
-[xbox-guide](https://github.com/furqanagwan/xbox). This SDK pins it under
-`thirdparty/xbox`; see [extraction](xbox-guide-extraction.md).
+The Guide lives in `src/xbox` (the XUI scene runtime in `src/xbox/ui/xui`, the Guide in
+`src/xbox/ui/guide`); its host pages are described in [host UI](xbox-guide-host-ui.md).
 
 The Xbox 360 guide over a running title, built from the console's own scenes
 ([ADR-011](adr/ADR-011-xbox-guide-from-system-xui.md),
@@ -118,6 +117,9 @@ focus, press and sounds come from the skin visuals' named frames.
 - Games & Apps > Active Downloads lists this session's title update
   downloads and installs, newest first, with their progress or result; A on a
   running download cancels it. Downloads carry on when the guide is closed.
+- A tab whose entries no longer fit its scene (Games & Apps has nine with the
+  added entries; its scene is 200 units, seven 28-unit rows) is clipped to the
+  scene and scrolls a row at a time to keep the focused entry in view.
 - Settings > Preferences, Patches, Mods and Cheats open settings pages built
   from the console's own Options scenes (see [Settings pages](#settings-pages)).
 - While the guide is open, the title behind it is darkened to a quarter of its
@@ -248,10 +250,12 @@ is saved to the title's config file straight away.
 
 | Page | Scene | Controls | Setting |
 | --- | --- | --- | --- |
-| Preferences | `Options` (`OptionsEmulator` with the BC HUD) | Notifications, Volume (the Voice entry), Vibration, Resolution (a copy of Vibration; with the BC HUD it is under Xbox Settings instead). Online Status, Family Timer and Word Registration are removed. | |
+| Preferences | `Options` (`OptionsEmulator` with the BC HUD) | Notifications, Volume (the Voice entry), Audio Output and Display (added below Volume when the host lists outputs and displays), Vibration, Resolution (a copy of Vibration; with the BC HUD it is under Xbox Settings instead). Online Status, Family Timer and Word Registration are removed. | |
 | Xbox Settings (BC HUD) | `XboxOneXSettings` | Optimize game for: Graphics or Performance. The pane's first line, "Changing this setting will end your current session.", reads that the setting is used at the next start. | Graphics: `resolution_match_display`; Performance: `resolution_scale` 1; next launch |
 | Notifications | `OptionsNotifications` | Show Notifications; Play Sound (disabled while Show is off) | `notifications_show`, `notifications_sound`: the unlock popup and its sound |
 | Volume | `OptionsVoice` | Game Volume slider, steps of 10, left and right; the Kinect checkbox as Mute When Minimized; voice and output hidden | `audio_volume`, `audio_mute_minimized`, applied live |
+| Audio Output | `OptionsVoice`'s Play Through radio list, rows added past three | Windows Default, then each active Windows output (up to seven) by its device name, the adapter in brackets dropped unless two share a name; the panel shows the focused output's full name, its speakers and format, whether the game plays in 5.1 there or is folded to stereo, spatial sound, and which of Dolby Digital, Dolby Digital Plus, Dolby TrueHD (Atmos), DTS and DTS-HD it decodes. A chosen output that is unplugged shows as Last Chosen (Not Connected) and the game plays through the default meanwhile | `audio_output_device` (endpoint ID, empty for the default), applied live: the game's sound and the guide's own sounds move at once |
+| Display | `OptionsVoice`'s Play Through radio list, headed Play On | Each display by its monitor name, in the `monitor` setting's order; the panel shows whether it is the main display and has the game, its current mode, the fastest refresh of its native and standard resolutions, HDR (supported, on or off in Windows), peak brightness, bits per colour, and that the game draws in SDR | `monitor`, applied live: the game moves to the display |
 | Vibration | `OptionsController` | Enable Vibration | `vibration`, applied live |
 | Resolution | `OptionsVoice`'s output radio list, one button added | Original (the default), 2x, 3x and Match Display, the last three marked Experimental | `resolution_scale`, `resolution_match_display`; next launch |
 | Patches, Mods | `OptionsNotifications` checkboxes, one copy per patch | The title's switchable code patches of that category (`patch`, `mod`) | `code_patch_states`, applied live |
@@ -287,6 +291,28 @@ is saved to the title's config file straight away.
   so text and notifications are sharp at 4K. The console's images (PNG) and the
   title's achievement icons (64 x 64) have no higher-resolution source and are
   scaled up with linear filtering.
+  - The host lays ImGui out in logical units (1280 x 720 at 4K with 300%
+    Windows scaling) and the draw lists are stretched to the physical pixels.
+    The renderer is told the pixels per unit (`RenderResources::pixels_per_point`,
+    the window's DPI over 96) and slices radial gradients for the physical
+    pixels.
+  - The skin draws its discs (the radio buttons' ring, fill and dot) as radial
+    gradients that fade to transparent over their last 20% (14% for the dot):
+    about 1.5 pixels of soft edge at 720p. Scaled to 4K that fade became a
+    5-pixel blur. A radial gradient whose last stop fades its colour out keeps
+    the fade's width on screen, around the same middle (`EdgeFadeOnScreen`), so
+    the discs are as crisp as on the console. Measured on the Resolution page
+    at 3840 x 2160 and 300%: the ring's edges went from 6-pixel ramps to 1–2
+    pixels.
+  - The button letters (A, B, X, Y) are drawn as one glyph quad at the exact
+    centre of their disc. `ImDrawList::AddText` truncates its position to whole
+    display units, three pixels each at 300%, which left the B 2.5 pixels left
+    and both letters 2.5 pixels high.
+  - The tab label column (`Blade_Focus`, from y 135) starts a unit inside the
+    centre blade's visible top and left edges. Under a pixel at 720p, at 4K
+    the blade showed through as a 2-pixel white line above and beside the
+    column; the column now starts a unit up and left (`CoverBladeEdge`; the
+    360 HUD only).
 
 ## Menu inventory
 
@@ -298,6 +324,7 @@ the guide acts on it; everything else is shown disabled, as on the console.
 | Games & Apps | Achievements | `802_Achievements` grid, then `828_AchievDetails` | Works |
 | | Manage Game (added) | | Works: the title's add-ons from its catalogue, installed from this PC |
 | | Title Updates (added) | | Works: the title's updates, optional, downloaded and turned on or off |
+| | Game Update (added) | | Works: new releases of the recompiled game, downloaded, checked and installed by its updater |
 | | Awards | `837_AvatarAwards` (avatar awards) | Disabled |
 | | Recent | `QuickLaunch`: Games & Apps, Downloads, All tabs | Disabled |
 | | My Games | dashboard (dash command 23) | Disabled |
@@ -369,7 +396,7 @@ in two bytes, or `0xFF` followed by 32 bits.
   level, then its keyframe count and first `KEYD` index. A leaf element with
   flag 4 has no timeline count.
 
-The schema (`thirdparty/xbox/ui/xui/src/schema.cpp`) lists only the classes the guide's scenes
+The schema (`src/xbox/ui/xui/src/schema.cpp`) lists only the classes the guide's scenes
 use. Mask bits past a class's known properties are read as one packed value and
 ignored, since every non-compound type except bool is one packed value (bool is
 a byte, which reads the same). One finding: `AccountManagementNavButton` derives
