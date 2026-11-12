@@ -84,8 +84,11 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   client size, following either while the game runs: a size kept for 300 ms is
   applied between frames, and the presenter scales the frame to the window.
   The Xbox guide sets it (Settings > Resolution), and Settings > Display Mode
-  sets `fullscreen` and `fullscreen_exclusive`. Other switches are `REGPU_*`
-  environment variables.
+  sets `fullscreen` and `fullscreen_exclusive`. `render_upscaler` (`off`,
+  `fsr1`, `fsr3`, `fsr4`, `dlss`) and `render_upscaler_quality` (0 native to 4
+  ultra performance) choose the upscaler, also live; with `REGPU_FSR3` the
+  FidelityFX DLLs are staged beside the title, and without them FSR 3/4 report
+  unavailable. Other switches are `REGPU_*` environment variables.
 - **Frame size.** The renderer starts at 1280x720 and follows the front buffer
   size the title's first swap reports, so a title that renders 1024x600 shows
   its first frame wrong and the rest right. Front buffers above 1280x720 are
