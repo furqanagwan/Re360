@@ -154,7 +154,7 @@ void XboxGuide::PollTitleUpdates() {
     const auto picked = std::move(picked_title_update_);
     for (const PPCTitleUpdate* u = host_.title_updates; u && u->version; ++u) {
       if (u->version == title_update_pick_version_ && picked && !picked->empty()) {
-        REXLOG_INFO("Xbox guide: installing title update {} from {}", u->version,
+        REXLOG_INFO("XboxUI: installing title update {} from {}", u->version,
                     path_to_utf8(*picked));
         StartTitleUpdateInstall(*u, TitleId(host_), host_.local_dir, *picked);
       }
@@ -282,7 +282,7 @@ void XboxGuide::SelectTitleUpdate(const PPCTitleUpdate& update) {
     return;
   }
   if (!s.installed) {
-    REXLOG_INFO("Xbox guide: downloading title update {}", update.version);
+    REXLOG_INFO("XboxUI: downloading title update {}", update.version);
     StartTitleUpdateDownload(update, TitleId(host_), host_.local_dir);
     ShowTitleUpdate(update);
     return;
@@ -316,7 +316,7 @@ void XboxGuide::ApplyTitleUpdateChoice() {
   if (host_.save_settings) {
     host_.save_settings();
   }
-  REXLOG_INFO("Xbox guide: title update {} chosen; restarting",
+  REXLOG_INFO("XboxUI: title update {} chosen; restarting",
               confirm_title_update_ ? fmt::format("{}", confirm_title_update_) : "off");
   if (host_.restart_title) {
     host_.restart_title();

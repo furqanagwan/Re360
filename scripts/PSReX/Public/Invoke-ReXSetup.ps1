@@ -18,7 +18,7 @@ function Invoke-ReXSetup {
     if (-not $RepoRoot) { $RepoRoot = Get-ReXRoot }
     $RepoRoot = [System.IO.Path]::GetFullPath($RepoRoot)
 
-    Write-Host "=== ReXGlue Developer Environment Setup ==="
+    Write-Host "=== Re360 Developer Environment Setup ==="
     Write-Host "Repo root: $RepoRoot"
     Write-Host ""
 

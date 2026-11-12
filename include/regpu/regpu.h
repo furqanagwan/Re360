@@ -36,7 +36,7 @@ struct Config
     uint32_t quality = 1;   // 0 native (anti-aliasing only), 1 quality, 2 balanced, 3 performance, 4 ultra performance
     float sharpness = 0.5f; // 0-1
     std::filesystem::path userDir = "."; // shader and pipeline caches, dumps
-    std::wstring windowTitle = L"ReGPU";
+    std::wstring windowTitle = L"XboxGPU";
     // A window the host already owns (an HWND): ReGPU presents into it instead of opening its own.
     // The host then handles closing, resizing and fullscreen; windowTitle and fullscreen are unused.
     void* hostWindow = nullptr;

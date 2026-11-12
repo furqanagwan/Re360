@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 
 # Windows is the only supported host (RG-GDK-024).
 if(NOT CMAKE_HOST_WIN32)
-    message(FATAL_ERROR "ReXGlue supports Windows hosts only. Linux and macOS support was retired; see RG-GDK-024.")
+    message(FATAL_ERROR "Re360 supports Windows hosts only. Linux and macOS support was retired; see RG-GDK-024.")
 endif()
 
 project(ReXGlue
@@ -30,7 +30,7 @@ option(REXGLUE_ENABLE_PERF_COUNTERS        "Enable lightweight perf counter regi
 option(REXGLUE_USE_GDK "Required Microsoft GDK (PC) integration" ON)
 if(NOT REXGLUE_USE_GDK)
     message(FATAL_ERROR
-        "GDK-free builds are retired. ReXGlue requires the April 2026 PC GDK "
+        "GDK-free builds are retired. Re360 requires the April 2026 PC GDK "
         "(260404); use the win-amd64-gdk preset. See docs/gdk-toolchain.md.")
 endif()
 option(REXGLUE_SHADER_DXIL "Opt-in DXIL shader toolchain: Mesa spirv_to_dxil, D3D12 Agility SDK and DXC (RG-GDK-032 stage 1)" OFF)
@@ -62,15 +62,15 @@ include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/rexglue_helpers.cmake)
 
 # Enforce an LLVM Clang toolchain
 if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-    message(FATAL_ERROR "ReXGlue requires the Clang compiler. Please set CMAKE_CXX_COMPILER to clang++")
+    message(FATAL_ERROR "Re360 requires the Clang compiler. Please set CMAKE_CXX_COMPILER to clang++")
 endif()
 if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "18.0")
-    message(FATAL_ERROR "ReXGlue requires Clang 18 or newer (found ${CMAKE_CXX_COMPILER_VERSION})")
+    message(FATAL_ERROR "Re360 requires Clang 18 or newer (found ${CMAKE_CXX_COMPILER_VERSION})")
 endif()
 
 # Enforce x64 architecture
 if(NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
-    message(FATAL_ERROR "ReXGlue only supports 64‑bit architectures (x86_64 or ARM64)")
+    message(FATAL_ERROR "Re360 only supports 64‑bit architectures (x86_64 or ARM64)")
 endif()
 
 # Set C++23 standard
@@ -110,7 +110,7 @@ if(WIN32)
         message(FATAL_ERROR "Unsupported Windows architecture: ${REX_TARGET_PROCESSOR}")
     endif()
 else()
-    message(FATAL_ERROR "Unsupported platform. ReXGlue supports Windows only.")
+    message(FATAL_ERROR "Unsupported platform. Re360 supports Windows only.")
 endif()
 
 # Build config as compile definition (multi-config generators don't know config at configure time)
@@ -267,7 +267,7 @@ include(cmake/rexglue_link_audit.cmake)
 
 # Print configuration summary
 message(STATUS "===========================================")
-message(STATUS "Re360 (ReXGlue) Configuration Summary:")
+message(STATUS "Re360 Configuration Summary:")
 message(STATUS "  Version: ${REXGLUE_FULL_VERSION} (${REXGLUE_VERSION_CHANNEL})")
 message(STATUS "  Platform: ${REX_PLATFORM}")
 message(STATUS "  Compiler: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}")

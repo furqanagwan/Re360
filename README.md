@@ -5,17 +5,18 @@ game's PowerPC code into C++ ahead of time, then supplies the parts of the
 console the game expects: kernel, memory, graphics, audio, input, saves and
 the Xbox 360 Guide.
 
-It is one repository for what used to be three:
+It is one repository for what used to be three, with names for the parts
+people see ([ADR-019](docs/adr/ADR-019-visible-component-names.md)):
 
-- **ReCPU** (formerly the ReXGlue SDK): the recompiler and the console runtime.
-- **ReGPU**: a lean Xenos renderer that draws into real host textures and
-  translates shaders to readable HLSL.
-- **Xbox**: the Xbox 360 Guide, played from the console's own scenes.
+- **XboxCPU** (from the ReXGlue SDK; once called ReCPU): the recompiler and the
+  console runtime.
+- **XboxGPU** (from ReGPU): a lean Xenos renderer that draws into real host
+  textures and translates shaders to readable HLSL.
+- **XboxUI**: the Xbox 360 Guide, played from the console's own scenes.
 
 > Status: alpha. Expect breaking changes. Three games (the Xbox 360 James Bond
-> titles) are tested with the default renderer; ReGPU builds and passes its
-> plugin test here but has not been run on a game in this repository yet. See
-> [what is tested](docs/release-evidence.md).
+> titles) are released with XboxGPU as their renderer, the emulated GPU
+> (`xenos`) as the fallback. See [what is tested](docs/release-evidence.md).
 
 ## How it works
 
@@ -76,7 +77,7 @@ per run:
 | `gpu_plugin` | What it is | Use it for |
 | --- | --- | --- |
 | `xenos` (default) | Xenia-derived Xenos emulation: EDRAM render-target cache, DXBC shaders, optional DXIL | The tested path and the reference image |
-| `regpu` | ReGPU: render targets as host textures, shaders as HLSL, FSR and DLSS upscaling | The lean renderer; see [ReGPU](docs/regpu.md) for what it does not do yet |
+| `regpu` | XboxGPU: render targets as host textures, shaders as HLSL, FSR, DLSS and XeSS upscaling | The lean renderer; see [XboxGPU](docs/regpu.md) for what it does not do yet |
 | `none` | No GPU | Tools and tests |
 
 ```powershell
@@ -93,11 +94,11 @@ renderers) is in the [native GPU plan](docs/native-gpu-plan.md).
 | `src/codegen` | PowerPC to C++ translation |
 | `src/system`, `src/kernel` | The console's runtime and kernel |
 | `src/graphics` | The `xenos` GPU plugin |
-| `src/regpu`, `include/regpu` | The `regpu` GPU plugin (ReGPU) |
+| `src/regpu`, `include/regpu` | The `regpu` GPU plugin (XboxGPU) |
 | `src/audio`, `src/input`, `src/filesystem` | Sound, controllers, files and saves |
 | `src/ui` | Window, presenter and overlays |
 | `src/xbox` | The Xbox 360 Guide and the XUI scenes it plays |
-| `tools/regpu` | ReGPU's live debugger, console (XBDM) comparison tools, shader disassembler |
+| `tools/regpu` | XboxGPU's live debugger, console (XBDM) comparison tools, shader disassembler |
 | `tests` | Unit, instruction and GPU tests |
 | `docs`, `research` | Design notes, decisions, test evidence and hardware notes |
 
@@ -109,8 +110,8 @@ a passing build.
 
 ## License and credits
 
-Re360 is under the BSD 3-Clause license in [LICENSE](LICENSE), except ReGPU
-(`src/regpu`, `include/regpu`, `tools/regpu`), which is under the MIT license
+Re360 is under the BSD 3-Clause license in [LICENSE](LICENSE), except XboxGPU
+(`src/regpu`, `include/regpu`, `tools/regpu`, from ReGPU), which is under the MIT license
 in [src/regpu/LICENSE](src/regpu/LICENSE). Not affiliated with or endorsed by
 Microsoft or Xbox.
 
@@ -124,7 +125,7 @@ Re360 builds on:
   the wider community. The recompiler and runtime come from it.
 - [ReGPU](https://github.com/zer0ducksgiven/ReGPU) by Scott. The `regpu`
   renderer comes from it; its credits and the Xenia notice for the routines
-  that follow Xenia's are in [ReGPU](docs/regpu.md#credits-and-licences).
+  that follow Xenia's are in [XboxGPU](docs/regpu.md#credits-and-licences).
 - [Xenia](https://github.com/xenia-project/xenia),
   [Xenia Canary](https://github.com/xenia-canary/xenia-canary),
   [Xenia Edge](https://github.com/has207/xenia-edge),

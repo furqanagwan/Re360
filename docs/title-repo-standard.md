@@ -97,7 +97,7 @@ end to end), **Playable** (validated through the game, with the limits listed).
 ## How to play
 
 <What a player needs (Windows, GPU, their own copy), how to start the game,
-and how to open the Xbox guide.>
+and how to open XboxUI.>
 
 ## Issues and records
 
@@ -141,7 +141,7 @@ to its record in `docs/`.
 
 ## Patches and mods / Cheat codes / Add-ons
 
-What the title's `.toml` gives the Xbox guide, as lists.
+What the title's `.toml` gives XboxUI, as lists.
 
 ## Configuration
 

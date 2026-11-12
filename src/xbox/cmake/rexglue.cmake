@@ -10,7 +10,7 @@ set(XBOX_FUZZ_TEST_DATA_DIR "${XBOX_SOURCE_DIR}/ui/xui/tests")
 
 function(xbox_attach_rexglue target)
     if(NOT TARGET ${target} OR NOT DEFINED REXGLUE_ROOT)
-        message(FATAL_ERROR "xbox_attach_rexglue requires a ReXGlue source build")
+        message(FATAL_ERROR "xbox_attach_rexglue requires an Re360 source build")
     endif()
     file(GLOB sources CONFIGURE_DEPENDS
         "${XBOX_SOURCE_DIR}/ui/xui/src/*.cpp"

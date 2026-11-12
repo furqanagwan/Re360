@@ -1,6 +1,8 @@
-# ReGPU: the `regpu` GPU plugin
+# XboxGPU: the `regpu` GPU plugin
 
-ReGPU is Re360's second Xenos renderer. It reads the same PM4 command stream as
+XboxGPU (from Scott's [ReGPU](https://github.com/zer0ducksgiven/ReGPU); the name
+people see, per [ADR-019](adr/ADR-019-visible-component-names.md), while the code keeps `regpu`)
+is Re360's second Xenos renderer. It reads the same PM4 command stream as
 the default `xenos` plugin but keeps render targets as host textures, turns
 resolves into copies, and translates shader microcode to readable HLSL. It can
 upscale (FSR 1 built in; FSR 3 and DLSS as build options).
@@ -15,7 +17,7 @@ What is proven here, on a real Direct3D 12 device through the plugin interface:
   1024x600 and 1152x640, the sizes some titles render at.
 
 James Bond 007: Blood Stone runs on it in Re360 (2026-11-11, NVIDIA RTX 5080
-Laptop GPU): title screen, menus, the first levels and the Xbox Guide over the
+Laptop GPU): title screen, menus, the first levels and XboxUI over the
 game, fullscreen at 3840x2160. Its first level rendered with green floors and a
 ghosted picture until two EDRAM fixes (aliased depth fill, resolves through
 another MSAA view; see the [Xenos notes](../research/gpu/regpu-xenos-notes.md)).
@@ -24,7 +26,7 @@ of the gate in the [native GPU plan](native-gpu-plan.md).
 
 ## Use it
 
-A project made with `rexglue init` stages both plugins. Pick ReGPU per run:
+A project made with `rexglue init` stages both plugins. Pick XboxGPU per run:
 
 ```powershell
 MyGame.exe --gpu_plugin=regpu
@@ -33,11 +35,11 @@ MyGame.exe --gpu_plugin=regpu
 An existing project adds `regpu` to its `GPU_PLUGINS` list
 (`rexglue_setup_target(MyGame GPU_PLUGINS xenos regpu)`) and rebuilds.
 
-To make ReGPU a build's default (a release, say), configure the title with
+To make XboxGPU a build's default (a release, say), configure the title with
 `-DREXGLUE_CVAR_DEFAULTS=gpu_plugin=regpu`; `--gpu_plugin=xenos` still picks
 the other plugin per run.
 
-ReGPU writes its shader and pipeline caches under the title's cache folder, in
+XboxGPU writes its shader and pipeline caches under the title's cache folder, in
 `regpu`. Its log is `regpu.log` in the working folder (`REGPU_LOG_DIR` moves it).
 The first run of a game compiles its shaders and can take minutes; later runs
 load them from the cache.
@@ -50,21 +52,21 @@ load them from the cache.
 | Its API | `include/regpu/regpu.h`, `include/regpu/driver.h` | `Config`, `Host` and the entry points the kernel's `Vd*` exports reach |
 | The plugin | `src/regpu/plugin/graphics_system.cpp` | Implements `IGraphicsSystem` (`include/rex/system/interfaces/graphics.h`) on top of that API |
 
-The plugin gives ReGPU what it asks of a host: guest memory, guest allocations,
+The plugin gives XboxGPU what it asks of a host: guest memory, guest allocations,
 threads that can run guest code, and the graphics interrupt through the
 function dispatcher. It routes the guest's GPU register range (`0x7FC80000`) to
-ReGPU's register file.
+XboxGPU's register file.
 
-ReGPU renders on the runtime's Direct3D 12 device and queue and hands each
+XboxGPU renders on the runtime's Direct3D 12 device and queue and hands each
 finished frame to the runtime's presenter (`Host::presentFrame` and
 `regpu::CopyFrameTo`), as the `xenos` plugin does. So the window, fullscreen,
-the Xbox Guide, notifications and the other overlays are the runtime's and work
+XboxUI, notifications and the other overlays are the runtime's and work
 the same on both plugins.
 
 ## Shaders at setup
 
 Before the game starts, the runtime asks the GPU plugin to prepare its shaders
-(`InitializeShaderStorage`). ReGPU compiles every shader and pipeline earlier
+(`InitializeShaderStorage`). XboxGPU compiles every shader and pipeline earlier
 runs stored and reports progress (`GetShaderPreparation`), which the runtime
 shows on the Guide's list page as **Preparing Shaders**, then starts the game.
 After an update that changes the translator, or with a cleared cache, this is
@@ -74,16 +76,16 @@ where the rebuild happens instead of during play (Blood Stone: 465 shaders,
 Scanning the game's files for shaders ahead of the first run does not work
 for every title: Blood Stone keeps its shaders compressed in
 `cache/shaders-speed.pak`, and a scan of its 6.6 GB of files finds none. The kernel's video exports (`src/kernel/xboxkrnl/xboxkrnl_video.cpp`) are
-shared by both plugins; ReGPU's own copies were removed in the merge.
+shared by both plugins; XboxGPU's own copies were removed in the merge.
 
 ## What it does not do yet
 
 - **Runtime settings.** `resolution_scale` and the other GPU cvars belong to
-  the `xenos` plugin. ReGPU draws at the `render_resolution` cvar's size (a
+  the `xenos` plugin. XboxGPU draws at the `render_resolution` cvar's size (a
   preset such as `1080p`, or `WxH`) or, when it is empty, at the window's
   client size, following either while the game runs: a size kept for 300 ms is
   applied between frames, and the presenter scales the frame to the window.
-  The Xbox guide sets it (Settings > Resolution), and Settings > Display Mode
+  XboxUI sets it (Settings > Resolution), and Settings > Display Mode
   sets `fullscreen` and `fullscreen_exclusive`. `render_upscaler` (`off`,
   `fsr1`, `fsr3`, `fsr4`, `dlss`, `xess`) and `render_upscaler_quality` (0 native to 4
   ultra performance) choose the upscaler, also live; with `REGPU_FSR3` the
@@ -99,7 +101,7 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   opt-in DXIL shader pack below builds them ahead of time.
 - **One renderer per process, and no teardown.** Its threads run until the
   process exits, which is how titles exit today.
-- **Its own support code.** ReGPU still carries its own logger, PNG writer,
+- **Its own support code.** XboxGPU still carries its own logger, PNG writer,
   live switches and D3D12 device setup instead of the runtime's. They are
   small, and replacing them is safe only once a game runs on it here.
 - **The debug server's controller** (`regpuctl.py press`) is not merged into
@@ -178,7 +180,7 @@ inputs never reached the outputs can't pass silently.
 
 ## Game-specific fixes
 
-ReGPU stays game-neutral. A workaround for one game goes through the optional
+XboxGPU stays game-neutral. A workaround for one game goes through the optional
 hooks in `include/regpu/regpu.h`, not into the renderer:
 
 | Hook | For |
@@ -209,7 +211,7 @@ with the Windows SDK's FXC).
 
 Start the game with `REGPU_DEBUG=1` and drive it with
 `tools/regpu/regpuctl.py`: screenshots, frame captures, live shader edits and
-`REGPU_*` switches. The method is in [ReGPU debugging](regpu-debugging.md).
+`REGPU_*` switches. The method is in [XboxGPU debugging](regpu-debugging.md).
 
 ## Credits and licences
 
@@ -243,4 +245,4 @@ Start the game with `REGPU_DEBUG=1` and drive it with
   (Intel Simplified Software License, only with `REGPU_XESS`); Microsoft's
   `d3dcompiler_47.dll` (Windows SDK redistributable).
 
-ReGPU is released under the [MIT licence](../src/regpu/LICENSE).
+XboxGPU is released under the [MIT licence](../src/regpu/LICENSE).

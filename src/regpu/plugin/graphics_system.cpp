@@ -95,7 +95,7 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
   X_STATUS SetupGuestGpu(runtime::FunctionDispatcher* function_dispatcher,
                          system::KernelState* kernel_state) override {
     if (active_system) {
-      REXLOG_ERROR("rexgpu-regpu: ReGPU keeps one renderer per process and one is already running");
+      REXLOG_ERROR("rexgpu-regpu: XboxGPU keeps one renderer per process and one is already running");
       return X_STATUS_UNSUCCESSFUL;
     }
     function_dispatcher_ = function_dispatcher;
@@ -116,7 +116,7 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
 
     memory_->AddVirtualMappedRange(kRegisterBase, kRegisterMask, kRegisterRangeSize, this,
                                    ReadRegisterThunk, WriteRegisterThunk);
-    REXLOG_INFO("rexgpu-regpu: ReGPU started at {}x{}", regpu::GetConfig().width,
+    REXLOG_INFO("rexgpu-regpu: XboxGPU started at {}x{}", regpu::GetConfig().width,
                 regpu::GetConfig().height);
     return X_STATUS_SUCCESS;
   }

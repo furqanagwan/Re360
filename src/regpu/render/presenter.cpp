@@ -416,7 +416,7 @@ void PresenterInit()
     if (HostPresents())
     {
         g_p.window = HWND(GetSettings().hostWindow); // (for keyboard focus only)
-        Log("presenter: the host presents ReGPU's frames");
+        Log("presenter: the host presents XboxGPU's frames");
         return;
     }
     if (getenv("REGPU_HEADLESS"))

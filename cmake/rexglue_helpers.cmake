@@ -202,7 +202,7 @@ function(_rexglue_stage_regpu_dxil target_name)
     endif()
     add_custom_target(${target_name}_regpu_shaders
         COMMAND "${_dis}" --pack "$<TARGET_FILE_DIR:${target_name}>/regpu_shaders" "${_cache}"
-        COMMENT "Building ${target_name}'s ReGPU shader pack from ${_cache}"
+        COMMENT "Building ${target_name}'s XboxGPU shader pack from ${_cache}"
         VERBATIM
     )
     if(TARGET regpu_dis)
@@ -403,7 +403,7 @@ endfunction()
 # players need nothing for the guide.
 #==========================================================
 set(REXGLUE_SYSTEM_UPDATE "$ENV{REXGLUE_SYSTEM_UPDATE}" CACHE PATH
-    "Console $SystemUpdate (dashboard 2.0.17559) built into each title for the Xbox guide")
+    "Console $SystemUpdate (dashboard 2.0.17559) built into each title for XboxUI (the Xbox guide)")
 set(REXGLUE_TITLE_VERSION "" CACHE STRING
     "The game's release version (for example 0.1.0-alpha.2); empty turns its updates off")
 set(REXGLUE_UPDATE_REPOSITORY "" CACHE STRING
@@ -411,14 +411,14 @@ set(REXGLUE_UPDATE_REPOSITORY "" CACHE STRING
 set(REXGLUE_UPDATE_ASSET "" CACHE STRING
     "Release file pattern for the game's update, with * for the version")
 set(REXGLUE_GUIDE_FLASH "$ENV{REXGLUE_GUIDE_FLASH}" CACHE PATH
-    "Optional Xbox PC backward-compatibility Content/Flash folder for the Xbox guide")
+    "Optional Xbox PC backward-compatibility Content/Flash folder for XboxUI (the Xbox guide)")
 
 function(_rexglue_embed_xbox_guide target_name presentation)
     if(presentation STREQUAL "original-xbox" AND NOT REXGLUE_GUIDE_FLASH)
         message(FATAL_ERROR "Original Xbox Guide requires REXGLUE_GUIDE_FLASH")
     endif()
     if(NOT REXGLUE_SYSTEM_UPDATE AND NOT presentation STREQUAL "original-xbox")
-        message(STATUS "${target_name}: Xbox guide not built in; set REXGLUE_SYSTEM_UPDATE "
+        message(STATUS "${target_name}: XboxUI not built in; set REXGLUE_SYSTEM_UPDATE "
                        "to the console's $SystemUpdate folder")
         return()
     endif()
@@ -459,7 +459,7 @@ function(_rexglue_embed_xbox_guide target_name presentation)
                 -o "${_bundle}"
         # The CLI too: a newer SDK may take more from the same update.
         DEPENDS ${_inputs} ${_rexglue_cli}
-        COMMENT "Building the Xbox guide into ${target_name}"
+        COMMENT "Building XboxUI into ${target_name}"
         VERBATIM)
 
     # The bundle goes into read-only data as it is; .incbin needs Clang.
@@ -493,7 +493,7 @@ const bool kRegistered = rex::ui::guide::RegisterEmbeddedGuide(
     configure_file("${_source}.in" "${_source}" COPYONLY)
     set_source_files_properties("${_source}" PROPERTIES OBJECT_DEPENDS "${_bundle}")
     target_sources(${target_name} PRIVATE "${_source}")
-    message(STATUS "${target_name}: Xbox guide built in from ${REXGLUE_SYSTEM_UPDATE}")
+    message(STATUS "${target_name}: XboxUI built in from ${REXGLUE_SYSTEM_UPDATE}")
 endfunction()
 
 #==========================================================

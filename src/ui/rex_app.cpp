@@ -1305,7 +1305,7 @@ void ReXApp::SetupGuide() {
   if (!REXCVAR_GET(xbox_guide) || guide_loader_.joinable()) {
     return;
   }
-  rex::ui::RegisterBind("bind_xbox_guide", "Home", "Open or close the Xbox guide",
+  rex::ui::RegisterBind("bind_xbox_guide", "Home", "Open or close XboxUI (the Xbox guide)",
                         [this] { ToggleGuide(); });
 
   kernel::xam::xeXamSetKeyboardProvider([this](const kernel::xam::KeyboardRequest& request,
@@ -1350,8 +1350,7 @@ void ReXApp::SetupGuide() {
       std::shared_ptr<const ui::guide::GuideAssets> assets =
           ui::guide::GuideAssets::LoadBundle(bundle, &error, presentation);
       if (assets) {
-        REXLOG_INFO("Xbox guide: using the guide built into the title ({} KiB)",
-                    bundle.size() / 1024);
+        REXLOG_INFO("XboxUI: using the guide built into the title ({} KiB)", bundle.size() / 1024);
         std::lock_guard<std::mutex> lock(guide_mutex_);
         guide_assets_ = std::move(assets);
         return;
@@ -1367,7 +1366,7 @@ void ReXApp::SetupGuide() {
       std::shared_ptr<const ui::guide::GuideAssets> assets =
           ui::guide::GuideAssets::Load(location, &error, presentation);
       if (assets) {
-        REXLOG_INFO("Xbox guide: using the system update at {}", location.string());
+        REXLOG_INFO("XboxUI: using the system update at {}", location.string());
         std::lock_guard<std::mutex> lock(guide_mutex_);
         guide_assets_ = std::move(assets);
         return;
@@ -1379,7 +1378,7 @@ void ReXApp::SetupGuide() {
           "This build has no guide built in: build the title with REXGLUE_SYSTEM_UPDATE "
           "set to a $SystemUpdate folder (dashboard 2.0.17559).";
     }
-    REXLOG_INFO("Xbox guide unavailable: {}", errors);
+    REXLOG_INFO("XboxUI unavailable: {}", errors);
     std::lock_guard<std::mutex> lock(guide_mutex_);
     guide_error_ = std::move(errors);
   });
@@ -1451,7 +1450,7 @@ void ReXApp::ToggleGuide() {
   if (!assets) {
     if (!error.empty() && !guide_unavailable_shown_) {
       guide_unavailable_shown_ = true;
-      ui::ImGuiDialog::ShowMessageBox(imgui_drawer_.get(), "Xbox Guide", error);
+      ui::ImGuiDialog::ShowMessageBox(imgui_drawer_.get(), "XboxUI", error);
     }
     return;
   }
@@ -1504,7 +1503,7 @@ void ReXApp::ToggleGuide() {
   host.on_closed = [this](bool exit_title) {
     guide_ = nullptr;
     if (exit_title) {
-      REXLOG_INFO("Xbox guide: exiting the title");
+      REXLOG_INFO("XboxUI: exiting the title");
       app_context().CallInUIThreadDeferred([this] {
         if (window_) {
           window_->RequestClose();

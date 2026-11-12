@@ -61,7 +61,7 @@ Import-Module "$PSScriptRoot/../PSReX" -Force -Global
 
 # -- Banner --------------------------------------------------------------------
 Write-Host ""
-Write-Host "  ReXGlue SDK Developer Shell" -ForegroundColor Cyan
+Write-Host "  Re360 SDK Developer Shell" -ForegroundColor Cyan
 Write-Host "  Arch:   $Arch" -ForegroundColor Gray
 Write-Host "  Preset: $Preset" -ForegroundColor Gray
 Write-Host "  Root:   $RepoRoot" -ForegroundColor Gray

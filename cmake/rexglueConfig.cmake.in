@@ -51,7 +51,7 @@ if(TARGET rex::runtime AND NOT TARGET rex::kernel)
 endif()
 
 if(NOT rexglue_FIND_QUIETLY)
-    message(STATUS "Found ReXGlue SDK ${REXGLUE_VERSION_STRING} at (${PACKAGE_PREFIX_DIR})")
+    message(STATUS "Found the Re360 SDK ${REXGLUE_VERSION_STRING} at (${PACKAGE_PREFIX_DIR})")
 endif()
 
 check_required_components(rexglue)

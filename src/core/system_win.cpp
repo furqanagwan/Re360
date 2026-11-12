@@ -18,7 +18,7 @@ namespace rex {
 
 void ShowSimpleMessageBox(SimpleMessageBoxType type, std::string_view message) {
   UINT flags = MB_OK | MB_TOPMOST | MB_SETFOREGROUND;
-  const wchar_t* title = L"ReXGlue";
+  const wchar_t* title = L"Re360";
   switch (type) {
     case SimpleMessageBoxType::Help:
       flags |= MB_ICONINFORMATION;

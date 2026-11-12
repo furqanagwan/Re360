@@ -20,3 +20,4 @@ Accepted destination/policy decisions. Each ADR's status line records how far it
 - [Required PC GDK and future Helix validation](ADR-016-required-pc-gdk.md)
 - [DirectX 12 Ultimate as an optional tier](ADR-017-directx-12-ultimate-tier.md)
 - [Re360: one repository for the recompiler, runtime, GPU plugins and Guide](ADR-018-re360-one-repository-two-gpu-plugins.md)
+- [XboxCPU, XboxGPU and XboxUI are the names people see](ADR-019-visible-component-names.md)

@@ -539,8 +539,7 @@ void XboxGuide::OpenAudioOutput() {
       return;
     }
     const Choice& choice = choices[size_t(row - rows.begin())];
-    REXLOG_INFO("Xbox guide: audio output {}",
-                choice.device.empty() ? "Windows default" : choice.text);
+    REXLOG_INFO("XboxUI: audio output {}", choice.device.empty() ? "Windows default" : choice.text);
     rex::cvar::SetFlagByName("audio_output_device", choice.device);
     CheckOnly(group, control);
     if (host_.save_settings) {
@@ -589,7 +588,7 @@ void XboxGuide::OpenDisplay() {
       return;
     }
     const DisplayInfo& display = displays[size_t(row - rows.begin())];
-    REXLOG_INFO("Xbox guide: playing on display {} ({})", display.monitor_index, display.name);
+    REXLOG_INFO("XboxUI: playing on display {} ({})", display.monitor_index, display.name);
     rex::cvar::SetFlagByName("monitor", std::to_string(display.monitor_index));
     CheckOnly(group, control);
     if (host_.save_settings) {
@@ -658,7 +657,7 @@ void XboxGuide::OpenDisplayMode() {
         "Resolution sets one."}},
       current, [](size_t choice) {
         static constexpr const char* kNames[] = {"fullscreen", "exclusive fullscreen", "windowed"};
-        REXLOG_INFO("Xbox guide: display mode {}", kNames[choice]);
+        REXLOG_INFO("XboxUI: display mode {}", kNames[choice]);
         rex::cvar::SetFlagByName("fullscreen_exclusive", choice == 1 ? "true" : "false");
         rex::cvar::SetFlagByName("fullscreen", choice == 2 ? "false" : "true");
       });
@@ -707,7 +706,7 @@ void XboxGuide::OpenRenderResolution() {
     }
   }
   OpenChoices("Resolution", "Render Resolution", choices, current, [values](size_t choice) {
-    REXLOG_INFO("Xbox guide: render resolution {}",
+    REXLOG_INFO("XboxUI: render resolution {}",
                 values[choice].empty() ? "matching the display" : values[choice]);
     rex::cvar::SetFlagByName("render_resolution", values[choice]);
   });
@@ -762,7 +761,7 @@ void XboxGuide::OpenUpscaler() {
     values.emplace_back(value);
   }
   OpenChoices("Upscaler", "Upscaler", choices, current, [values](size_t choice) {
-    REXLOG_INFO("Xbox guide: upscaler {}", values[choice]);
+    REXLOG_INFO("XboxUI: upscaler {}", values[choice]);
     rex::cvar::SetFlagByName("render_upscaler", values[choice]);
   });
 }
@@ -791,7 +790,7 @@ void XboxGuide::OpenUpscalerQuality() {
   }
   OpenChoices("Upscaler Quality", "Render Scale", choices,
               size_t(std::clamp(REXCVAR_GET(render_upscaler_quality), 0, 4)), [](size_t choice) {
-                REXLOG_INFO("Xbox guide: upscaler quality {}", choice);
+                REXLOG_INFO("XboxUI: upscaler quality {}", choice);
                 rex::cvar::SetFlagByName("render_upscaler_quality", std::to_string(choice));
               });
 }

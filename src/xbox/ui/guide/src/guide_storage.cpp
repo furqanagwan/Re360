@@ -224,10 +224,10 @@ void XboxGuide::DeleteChosenSave() {
   }
   const X_RESULT result = content->DeleteContent(save.xuid, data);
   if (result == X_ERROR_SUCCESS) {
-    REXLOG_INFO("Xbox guide: deleted the saved game {} ({})", save.name, save.file_name);
+    REXLOG_INFO("XboxUI: deleted the saved game {} ({})", save.name, save.file_name);
     storage_status_ = fmt::format("{} was deleted.", save.name);
   } else {
-    REXLOG_WARN("Xbox guide: deleting the saved game {} failed: {:08X}", save.file_name,
+    REXLOG_WARN("XboxUI: deleting the saved game {} failed: {:08X}", save.file_name,
                 uint32_t(result));
     storage_status_ = fmt::format("{} could not be deleted.", save.name);
   }
