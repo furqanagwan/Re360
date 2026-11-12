@@ -85,7 +85,7 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
   applied between frames, and the presenter scales the frame to the window.
   The Xbox guide sets it (Settings > Resolution), and Settings > Display Mode
   sets `fullscreen` and `fullscreen_exclusive`. `render_upscaler` (`off`,
-  `fsr1`, `fsr3`, `fsr4`, `dlss`) and `render_upscaler_quality` (0 native to 4
+  `fsr1`, `fsr3`, `fsr4`, `dlss`, `xess`) and `render_upscaler_quality` (0 native to 4
   ultra performance) choose the upscaler, also live; with `REGPU_FSR3` the
   FidelityFX DLLs are staged beside the title, and without them FSR 3/4 report
   unavailable. Other switches are `REGPU_*` environment variables.
@@ -196,8 +196,9 @@ title-profile work (ADR-009).
 
 | Option | Effect |
 | --- | --- |
-| `REGPU_FSR3` | AMD FSR 3. Needs `REGPU_FFX` set to the FidelityFX SDK's `Kits/FidelityFX` folder with its signed DLLs |
-| `REGPU_DLSS` | NVIDIA DLSS. Needs `REGPU_DLSS_DIR` set to the DLSS SDK |
+| `REGPU_FSR3` | AMD FSR 3 and 4. Needs `REGPU_FFX` set to FidelityFX SDK v2.1.0's `Kits/FidelityFX` folder; its signed loader and upscaler DLLs are installed and staged beside the title, and the loader is delay-loaded |
+| `REGPU_DLSS` | NVIDIA DLSS. Needs `REGPU_DLSS_DIR` set to the DLSS SDK (tested with v310.9.16); `nvngx_dlss.dll` is staged beside the title. Its licence requires NVIDIA's marks on a game's splash screen and credits, with NVIDIA's prior approval |
+| `REGPU_XESS` | Intel XeSS. Needs `REGPU_XESS_DIR` set to the XeSS SDK (tested with v3.0.2); `libxess.dll` and its licence (`XeSS-LICENSE.txt`, which must ship with it) are staged beside the title, and the DLL is delay-loaded |
 | `REGPU_FFX` | Also adds the `regpu-fsr1-bytecode` target, which rebuilds `src/regpu/gpu/bytecode/fsr1_cs.h` from `src/regpu/gpu/fsr1.hlsl` |
 
 The default build needs none of them: the FSR 1, gamma and depth-copy compute
@@ -238,7 +239,8 @@ Start the game with `REGPU_DEBUG=1` and drive it with
   > DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER
   > IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT
   > OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-- AMD FidelityFX SDK (MIT); NVIDIA DLSS SDK (its own licence, only with `REGPU_DLSS`); Microsoft's
+- AMD FidelityFX SDK (MIT); NVIDIA DLSS SDK (its own licence, only with `REGPU_DLSS`); Intel XeSS SDK
+  (Intel Simplified Software License, only with `REGPU_XESS`); Microsoft's
   `d3dcompiler_47.dll` (Windows SDK redistributable).
 
 ReGPU is released under the [MIT licence](../src/regpu/LICENSE).

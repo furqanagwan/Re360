@@ -66,7 +66,7 @@ REXCVAR_DEFINE_STRING(render_resolution, "", "Display",
 
 REXCVAR_DEFINE_STRING(
     render_upscaler, "off", "Display",
-    "Upscaler the regpu plugin uses: off, fsr1, fsr3, fsr4 or dlss (one the GPU or "
+    "Upscaler the regpu plugin uses: off, fsr1, fsr3, fsr4, dlss or xess (one the GPU or "
     "build can't run falls back to none). Changes apply while the game runs");
 
 REXCVAR_DEFINE_INT32(render_upscaler_quality, 1, "Display",

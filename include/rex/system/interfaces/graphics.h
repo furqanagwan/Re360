@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <string>
+#include <vector>
 
 #include <rex/system/xtypes.h>
 
@@ -68,6 +69,9 @@ class IGraphicsSystem {
   virtual uint32_t DefaultShaderPreparationThreads() const { return 0; }
   // Starts the game before preparation ends; the rest is prepared in the background.
   virtual void StartBeforeShadersPrepared() {}
+  // The render_upscaler values this PC can run ("off", "fsr1", "fsr3", "fsr4", "dlss", "xess");
+  // empty when the plugin has no upscalers or doesn't know yet.
+  virtual std::vector<std::string> AvailableUpscalers() const { return {}; }
   virtual void FlushCaches() {}
 
   virtual void SetInterruptCallback(uint32_t callback, uint32_t user_data) {
