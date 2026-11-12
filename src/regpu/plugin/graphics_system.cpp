@@ -263,12 +263,31 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
     regpu::SetOutputSize(width, height);
   }
 
+  // The upscaler settings (render_upscaler, render_upscaler_quality), which ReGPU reads every frame.
+  static void ApplyUpscaler() {
+    using Upscaler = regpu::Config::Upscaler;
+    const std::string name = cvar::Query<std::string>("render_upscaler");
+    const Upscaler upscaler = name == "fsr1"   ? Upscaler::Fsr1
+                              : name == "fsr3" ? Upscaler::Fsr3
+                              : name == "fsr4" ? Upscaler::Fsr4
+                              : name == "dlss" ? Upscaler::Dlss
+                                               : Upscaler::Off;
+    const auto quality = uint32_t(std::clamp(cvar::Query<int32_t>("render_upscaler_quality"), 0, 4));
+    regpu::Config& config = regpu::GetConfig();
+    if (config.upscaler != upscaler || config.quality != quality) {
+      REXLOG_INFO("rexgpu-regpu: upscaler {} at quality {}", name, quality);
+      config.upscaler = upscaler;
+      config.quality = quality;
+    }
+  }
+
   static void PresentFrame(uint32_t width, uint32_t height) {
     ui::Presenter* presenter = active_system ? active_system->presenter_.get() : nullptr;
     if (!presenter) {
       return;
     }
     active_system->FollowOutputSize();
+    ApplyUpscaler();
     presenter->RefreshGuestOutput(width, height, width, height,
                                   [](ui::Presenter::GuestOutputRefreshContext& context) {
                                     context.SetIs8bpc(true);

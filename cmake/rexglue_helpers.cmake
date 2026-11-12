@@ -164,6 +164,7 @@ function(rexglue_configure_target target_name)
         )
         if(_plugin STREQUAL "regpu")
             _rexglue_stage_regpu_dxil(${target_name})
+            _rexglue_stage_regpu_ffx(${target_name})
         endif()
         unset(_plugin_target)
     endforeach()
@@ -207,6 +208,23 @@ function(_rexglue_stage_regpu_dxil target_name)
     if(TARGET regpu_dis)
         add_dependencies(${target_name}_regpu_shaders regpu_dis)
     endif()
+endfunction()
+
+# The FidelityFX DLLs (FSR 3/4) go beside the executable when the SDK was built with them
+# (REGPU_FSR3): from the build tree, or from an installed SDK's bin folder.
+function(_rexglue_stage_regpu_ffx target_name)
+    if(REGPU_FFX_FILES)
+        set(_files ${REGPU_FFX_FILES})
+    else()
+        file(GLOB _files "${REXGLUE_BIN_DIR}/amd_fidelityfx_*_dx12.dll")
+    endif()
+    if(NOT _files)
+        return()
+    endif()
+    add_custom_command(TARGET ${target_name} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${_files} $<TARGET_FILE_DIR:${target_name}>
+        VERBATIM
+    )
 endfunction()
 
 # Embeds native Windows resources independently of the runtime window icon
