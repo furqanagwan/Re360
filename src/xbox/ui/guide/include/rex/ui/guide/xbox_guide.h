@@ -168,6 +168,9 @@ struct GuideHost {
 
   int display_scale = 1;
 
+  // The GPU plugin drawing the game ("regpu", "xenos"): the Resolution page sets what it uses.
+  std::string renderer;
+
   std::function<std::vector<audio::AudioOutput>()> audio_outputs;
 
   std::function<std::vector<DisplayInfo>()> displays;
@@ -240,6 +243,16 @@ class XboxGuide final : public ImGuiDialog {
   void OpenResolution();
   void OpenAudioOutput();
   void OpenDisplay();
+  void OpenDisplayMode();
+  void OpenRenderResolution();
+  struct Choice {
+    std::string text;
+    std::string details;
+  };
+  // A page of choices, one checked (`current`), its details shown as each is focused;
+  // `chosen` applies one and the settings are saved.
+  void OpenChoices(std::string title, std::string heading, std::vector<Choice> choices,
+                   size_t current, std::function<void(size_t)> chosen);
 
   void OpenXboxSettings();
   void OpenPatches(std::string_view category);

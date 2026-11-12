@@ -1481,6 +1481,7 @@ void ReXApp::ToggleGuide() {
   host.local_dir = local_dir_;
   host.restart_title = [this] { restart_on_exit_ = true; };
   host.display_scale = DisplayScale(DisplayHeight(window_.get()));
+  host.renderer = config_.gpu_plugin;
   host.audio_outputs = [] { return rex::audio::ListAudioOutputs(); };
   host.displays = [this] {
     auto* win32 = static_cast<ui::Win32Window*>(window_.get());

@@ -7,12 +7,15 @@
  */
 
 #include <algorithm>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
 #include <vector>
 
+#include <rex/cvar.h>
 #include <rex/graphics/registers.h>
+#include <rex/graphics/video_mode_util.h>
 #include <rex/kernel/xboxkrnl/video.h>
 #include <rex/logging.h>
 #include <rex/runtime.h>
@@ -187,12 +190,9 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
     }
     config.width = kFallbackWidth;
     config.height = kFallbackHeight;
-    RECT client{};
-    if (host_window_ && GetClientRect(HWND(host_window_), &client) && client.right > 0 &&
-        client.bottom > 0) {
-      config.width = uint32_t(client.right);
-      config.height = uint32_t(client.bottom);
-    }
+    DesiredOutputSize(config.width, config.height);
+    output_width_ = pending_width_ = config.width;
+    output_height_ = pending_height_ = config.height;
     std::filesystem::path cache_root = kernel_state_->emulator()->cache_root();
     if (cache_root.empty()) {
       cache_root = std::filesystem::current_path();
@@ -216,11 +216,59 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
     }
   }
 
+  // What ReGPU draws at: render_resolution when it names a size, else the window's client area
+  // (the presenter scales the frame to the window either way).
+  bool DesiredOutputSize(uint32_t& width, uint32_t& height) const {
+    int32_t preset_width = 0, preset_height = 0;
+    if (graphics::video_mode_util::TryParseResolutionPreset(
+            cvar::Query<std::string>("render_resolution"), preset_width, preset_height)) {
+      width = uint32_t(std::clamp(preset_width, 320, 7680));
+      height = uint32_t(std::clamp(preset_height, 240, 4320));
+      return true;
+    }
+    RECT client{};
+    if (host_window_ && GetClientRect(HWND(host_window_), &client) && client.right > 0 &&
+        client.bottom > 0) {
+      width = uint32_t(client.right);
+      height = uint32_t(client.bottom);
+      return true;
+    }
+    return false;
+  }
+
+  // Follows the window and render_resolution while the game runs: a size kept for 300 ms is applied
+  // (regpu::SetOutputSize, between frames), so dragging a window's edge doesn't rebuild the
+  // surfaces every frame. Before this the output stayed at the window's size at start, before
+  // fullscreen had settled (3840x2097 on a 2160p display).
+  void FollowOutputSize() {
+    uint32_t width = 0, height = 0;
+    if (!DesiredOutputSize(width, height)) {
+      return;  // minimised
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (width != pending_width_ || height != pending_height_) {
+      pending_width_ = width;
+      pending_height_ = height;
+      pending_since_ = now;
+      return;
+    }
+    if ((width == output_width_ && height == output_height_) ||
+        now - pending_since_ < std::chrono::milliseconds(300)) {
+      return;
+    }
+    REXLOG_INFO("rexgpu-regpu: drawing at {}x{} (was {}x{})", width, height, output_width_,
+                output_height_);
+    output_width_ = width;
+    output_height_ = height;
+    regpu::SetOutputSize(width, height);
+  }
+
   static void PresentFrame(uint32_t width, uint32_t height) {
     ui::Presenter* presenter = active_system ? active_system->presenter_.get() : nullptr;
     if (!presenter) {
       return;
     }
+    active_system->FollowOutputSize();
     presenter->RefreshGuestOutput(width, height, width, height,
                                   [](ui::Presenter::GuestOutputRefreshContext& context) {
                                     context.SetIs8bpc(true);
@@ -292,6 +340,9 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
   system::KernelState* kernel_state_ = nullptr;
   memory::Memory* memory_ = nullptr;
   void* host_window_ = nullptr;
+  uint32_t output_width_ = 0, output_height_ = 0;    // what ReGPU draws at
+  uint32_t pending_width_ = 0, pending_height_ = 0;  // what it should, since pending_since_
+  std::chrono::steady_clock::time_point pending_since_{};
   std::unique_ptr<ui::d3d12::D3D12Provider> provider_;
   std::unique_ptr<ui::Presenter> presenter_;
   std::mutex threads_mutex_;
