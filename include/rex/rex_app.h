@@ -195,6 +195,9 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   void StartGuidePoller();
   void StopGuide();
   void ToggleGuide();
+  // The mouse cursor over the game: hidden in fullscreen play, shown while the guide or another
+  // dialog is open (they take the mouse), hidden after a moment's stillness in a window.
+  void UpdateCursorVisibility();
 
   PPCImageInfo ppc_info_;
   PathConfig resolved_defaults_;

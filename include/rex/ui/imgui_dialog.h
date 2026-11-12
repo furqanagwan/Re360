@@ -35,6 +35,10 @@ class ImGuiDialog {
 
   void Draw();
 
+  // Whether the player uses this dialog with the mouse (the cursor shows while one is open).
+  // Passive overlays (notifications, statistics) say no.
+  virtual bool UsesMouse() const { return true; }
+
  protected:
   ImGuiDialog(ImGuiDrawer* imgui_drawer);
 
