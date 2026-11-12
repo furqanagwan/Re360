@@ -54,7 +54,7 @@ Result<void> WriteGuideBundle(const GuideBundleArgs& args) {
   }
   for (std::string_view font : SystemUpdate::kFonts) {
     if (modules->contains(fmt::format("font/{}", font)) && update->Font(font).empty()) {
-      REXLOG_WARN("Xbox guide bundle: font {} does not convert; the guide falls back", font);
+      REXLOG_WARN("XboxUI bundle: font {} does not convert; the guide falls back", font);
     }
   }
   const auto bundle = SystemUpdate::WriteBundle(*modules);
@@ -77,7 +77,7 @@ Result<void> WriteGuideBundle(const GuideBundleArgs& args) {
     return Err<void>(ErrorCategory::IO,
                      fmt::format("could not write {}: {}", out.string(), ec.message()));
   }
-  REXLOG_INFO("Xbox guide bundle: {} modules, {} KiB -> {}", modules->size(), bundle.size() / 1024,
+  REXLOG_INFO("XboxUI bundle: {} modules, {} KiB -> {}", modules->size(), bundle.size() / 1024,
               out.string());
   return rex::Ok();
 }
@@ -123,7 +123,7 @@ void RegisterGuideBundle(CLI::App& parent, const CliContext& ctx, DeferredAction
   (void)ctx;
   auto args = std::make_shared<GuideBundleArgs>();
   auto* sub = parent.add_subcommand(
-      "guide-bundle", "Bundle the Xbox guide's console files for embedding in a title");
+      "guide-bundle", "Bundle XboxUI's console files (the Xbox guide) for embedding in a title");
   sub->add_option("sources", args->sources,
                   "$SystemUpdate folder (dashboard 2.0.17559), its su*_00000000 package, or a "
                   "folder of $flash_<module>.xex or <module>.xex files (an Xbox PC "

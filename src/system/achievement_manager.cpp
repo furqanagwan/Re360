@@ -290,7 +290,7 @@ void AchievementManager::SaveUnlockState() const {
     return;
   }
 
-  std::string content = "# Achievement unlock state - managed by ReXGlue runtime\n\n";
+  std::string content = "# Achievement unlock state - managed by the XboxCPU runtime\n\n";
   for (const auto& [id, filetime] : unlocked) {
     content += fmt::format("[unlocked.{}]\nfiletime = {}\n\n", id, filetime);
   }

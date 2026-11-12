@@ -419,11 +419,11 @@ void XboxGuide::PollManageGame() {
   }
   dlc_job_.reset();
   if (job->result == X_ERROR_SUCCESS) {
-    REXLOG_INFO("Xbox guide: installed {}", job->file_name);
+    REXLOG_INFO("XboxUI: installed {}", job->file_name);
     dlc_status_ = "Installed. The game may need a restart to use it.";
     media_->PlaySound("btn_selectG.xma", "xam/skin");
   } else {
-    REXLOG_WARN("Xbox guide: installing {} failed: {:08X}", job->file_name, job->result);
+    REXLOG_WARN("XboxUI: installing {} failed: {:08X}", job->file_name, job->result);
     dlc_status_ = fmt::format("The content could not be installed (error {:08X}).", job->result);
   }
   xui::Element* focused = focus_;

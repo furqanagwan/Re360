@@ -32,7 +32,8 @@
 namespace {
 
 std::string TitleString() {
-  return fmt::format("ReXGlue v{} - Xbox 360 Recompilation Toolkit", REXGLUE_VERSION_STRING);
+  return fmt::format("XboxCPU v{} - Xbox 360 recompiler and runtime (Re360)",
+                     REXGLUE_VERSION_STRING);
 }
 
 bool IsStderrTty() {

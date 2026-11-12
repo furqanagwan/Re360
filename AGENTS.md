@@ -7,9 +7,12 @@ no previous chat context is required.
 ## Mission and non-negotiable architecture
 
 Re360 (`furqanagwan/Re360`) is a Windows PC / April 2026 GDK / D3D12-only static
-Xbox 360 recompilation SDK. It combines the ReXGlue SDK (the recompiler and
-runtime, also called ReCPU) with ReGPU (a second Xenos renderer); see ADR-018.
-Identifiers keep the names `rexglue` and `rex::`. GDK is required, not optional
+Xbox 360 recompilation SDK. It combines XboxCPU (the recompiler and runtime,
+from the ReXGlue SDK) with XboxGPU (a second Xenos renderer, from ReGPU) and
+XboxUI (the Xbox 360 Guide); see ADR-018. Identifiers keep the names `rexglue`,
+`rex::` and `regpu`; names people read (docs, READMEs, UI text, log messages,
+release notes) are XboxCPU, XboxGPU and XboxUI, while credits and upstream
+references keep ReXGlue and ReGPU (ADR-019). GDK is required, not optional
 (ADR-016); GDK-free builds are retired. Project Helix is a future validation
 target, not a hardware or deployment support claim. Current legacy platforms/backends
 remain only until the documented replacement and regression gates are met.
@@ -32,7 +35,7 @@ requires a shader architecture decision and does not imply a Vulkan backend.
 * `src/graphics`, `include/rex/graphics`: Xenos/PM4, shaders, textures, EDRAM,
   D3D12 plugin (`rexgpu-xenos`, the default). `src/ui/d3d12` owns host
   device/presentation.
-* `src/regpu`, `include/regpu`, `tools/regpu`: ReGPU, the `rexgpu-regpu` plugin
+* `src/regpu`, `include/regpu`, `tools/regpu`: XboxGPU, the `rexgpu-regpu` plugin
   (`gpu_plugin=regpu`). Read `docs/regpu.md` and `docs/regpu-debugging.md`
   before changing it. It keeps its own style and comments and stays
   game-neutral; `src/regpu/plugin` is SDK code and follows the rules below.
@@ -81,7 +84,7 @@ whenever a configuration's status changes.
 ## Conventions and Git workflow
 
 Code has no comments apart from license headers: names say what code does
-(ReGPU's renderer under `src/regpu` is the exception, per ADR-018).
+(XboxGPU's renderer under `src/regpu` is the exception, per ADR-018).
 Hardware behavior, workarounds, provenance and measurements go in
 [research](research/README.md), one Markdown file per topic, updated in the
 same pull request as the code. Use C++23, PascalCase functions and types,

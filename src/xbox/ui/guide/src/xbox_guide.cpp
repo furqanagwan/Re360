@@ -35,17 +35,17 @@
 #include <rex/ui/guide/guide_layout.h>
 
 REXCVAR_DEFINE_BOOL(xbox_guide, true, "UI",
-                    "View+Menu (Back+Start) or Home opens the Xbox guide (needs the "
+                    "View+Menu (Back+Start) or Home opens XboxUI, the Xbox guide (needs the "
                     "console's system update, see xbox_guide_system_update)");
 REXCVAR_DEFINE_STRING(xbox_guide_system_update, "", "UI",
                       "The console's $SystemUpdate folder (dashboard 2.0.17559) or its "
-                      "su*_00000000 package, for the Xbox guide's scenes and sounds");
+                      "su*_00000000 package, for XboxUI's scenes and sounds");
 
 REXCVAR_DEFINE_BOOL(notifications_show, true, "UI",
                     "Show notifications (achievement unlocks) over the title");
 REXCVAR_DEFINE_BOOL(notifications_sound, true, "UI", "Play the notification sound");
 REXCVAR_DEFINE_STRING(code_patch_states, "", "UI",
-                      "Switchable code patches the player turned on or off in the Xbox guide "
+                      "Switchable code patches the player turned on or off in XboxUI "
                       "(Name=1;Name=0)");
 REXCVAR_DEFINE_BOOL(resolution_match_display, false, "GPU",
                     "Experimental: render at the display's resolution, setting resolution_scale "
@@ -513,7 +513,7 @@ std::unique_ptr<GuideAssets> GuideAssets::FromUpdate(std::unique_ptr<xui::System
       scene(assets->achievements, "gamerprofile/gp", "802_Achievements.xur") &&
       scene(assets->achievement_details, "gamerprofile/gp", "828_AchievDetails.xur");
   if (!assets->has_achievement_scenes && error) {
-    REXLOG_WARN("Xbox guide: no achievement scenes ({}); Achievements stays disabled", *error);
+    REXLOG_WARN("XboxUI: no achievement scenes ({}); Achievements stays disabled", *error);
     error->clear();
   }
   assets->has_notify = scene(assets->notify, "xam/xam", "notify.xur");
@@ -584,7 +584,7 @@ GuideFonts AddGuideFonts(ImFontAtlas* atlas, int display_height) {
         fonts.regular =
             atlas->AddFontFromMemoryTTF(data, int(ttf.size()), baked_size, &config, kRanges);
       } else if (xtt != modules->end()) {
-        REXLOG_WARN("Xbox guide: the console font does not load ({})", error);
+        REXLOG_WARN("XboxUI: the console font does not load ({})", error);
       }
     }
   }
@@ -673,7 +673,7 @@ void GuideMedia::PlaySound(std::string_view file, std::string_view package) {
             audio::DecodeXmaFile(xui::ResolveFile(*assets_->update, file, package), &error)) {
       sound = std::make_shared<audio::PcmSound>(std::move(*decoded));
     } else {
-      REXLOG_WARN("Xbox guide: sound {} did not decode: {}", file, error);
+      REXLOG_WARN("XboxUI: sound {} did not decode: {}", file, error);
     }
     it = sounds_.emplace(key, std::move(sound)).first;
   }

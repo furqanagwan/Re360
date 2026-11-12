@@ -1,5 +1,7 @@
-# Xbox guide
+# XboxUI: the Xbox guide
 
+XboxUI is the name people see for the Xbox 360 Guide and the XUI runtime that plays it
+([ADR-019](adr/ADR-019-visible-component-names.md)); the code keeps `xbox` and `guide`.
 The Guide lives in `src/xbox` (the XUI scene runtime in `src/xbox/ui/xui`, the Guide in
 `src/xbox/ui/guide`); its host pages are described in [host UI](xbox-guide-host-ui.md).
 
@@ -39,7 +41,7 @@ keyboard runs. An owner play session with a pad is still to do.
   A BC presentation does not implement original Xbox execution or Xbox services.
   `rexglue guide-bundle <flash> <$SystemUpdate> -o <bundle>` still combines sources
   explicitly; the consuming host controls which scenes it loads.
-- A build without `REXGLUE_SYSTEM_UPDATE` logs "Xbox guide not built in" and,
+- A build without `REXGLUE_SYSTEM_UPDATE` logs "XboxUI not built in" and,
   at run time, falls back to the `xbox_guide_system_update` cvar, `$SystemUpdate`
   beside the executable, then `%LOCALAPPDATA%\ReXGlue\$SystemUpdate`. Naming
   the cvar also overrides the built-in guide. `--xbox_guide=false` turns the

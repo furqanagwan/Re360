@@ -55,7 +55,7 @@ value = 0x01
 ## Switchable patches
 
 `switchable = true` compiles both versions in, so the player can turn the
-patch on and off while the title runs (the Xbox guide's Settings > Patches or
+patch on and off while the title runs (XboxUI's Settings > Patches or
 Mods, [xbox-guide.md](xbox-guide.md#settings-pages)):
 
 ```toml
@@ -115,7 +115,7 @@ category = "patch"         # or "mod": which guide page lists it ("cheat" reads 
 ## Title cheat codes
 
 `[[cheat]]` lists a cheat the title's developers built in: a code the
-player types into the game's own menu. Nothing is patched; the Xbox guide's
+player types into the game's own menu. Nothing is patched; XboxUI's
 Settings > Cheats lists the codes so a player need not look them up
 ([xbox-guide.md](xbox-guide.md#settings-pages)).
 
@@ -134,7 +134,7 @@ where each code came from next to it.
 ## Title add-ons
 
 `[[dlc]]` lists an add-on the title had in the Xbox 360 marketplace, by its
-marketplace media ID. The Xbox guide's Games & Apps > Manage Game lists each one
+marketplace media ID. XboxUI's Games & Apps > Manage Game lists each one
 with its catalogue name, publisher, description and banner, and installs it
 from a package on this PC ([xbox-guide.md](xbox-guide.md#what-it-does)).
 

@@ -190,7 +190,7 @@ void XboxGuide::ApplyGameUpdateChoice() {
   const bool rollback = confirm_ == Confirm::kGameRollBack;
   const bool started = rollback ? RollBackAppUpdate(&error) : InstallAppUpdate(&error);
   if (!started) {
-    REXLOG_WARN("Xbox guide: game update couldn't start: {}", error);
+    REXLOG_WARN("XboxUI: game update couldn't start: {}", error);
     CloseConfirm();
     if (game_update_scene_) {
       if (xui::Element* e = game_update_scene_->FindById("XuiLabel1")) {
@@ -199,7 +199,7 @@ void XboxGuide::ApplyGameUpdateChoice() {
     }
     return;
   }
-  REXLOG_INFO("Xbox guide: {}; the game closes for the updater",
+  REXLOG_INFO("XboxUI: {}; the game closes for the updater",
               rollback ? "going back to the previous version" : "installing the update");
   BeginClose(true);
 }

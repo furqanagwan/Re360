@@ -1,15 +1,15 @@
-# ReGPU debugging
+# XboxGPU debugging
 
-How to find and fix a rendering bug with `gpu_plugin=regpu`. What ReGPU is and
-how it is wired into Re360 is in [ReGPU](regpu.md); what the renderer had to get
+How to find and fix a rendering bug with `gpu_plugin=regpu`. What XboxGPU is and
+how it is wired into Re360 is in [XboxGPU](regpu.md); what the renderer had to get
 right is in the [Xenos notes](../research/gpu/regpu-xenos-notes.md), which you
 should read before changing `src/regpu/gpu`.
 
 ## Ground rules
 
-- **Keep ReGPU game-neutral.** A fix for one game goes in that game's project,
+- **Keep XboxGPU game-neutral.** A fix for one game goes in that game's project,
   through the hooks in `include/regpu/regpu.h` (`rewriteShader`, `onDraw`,
-  `resolveWriteback`, ...). Change ReGPU itself only for console behaviour every
+  `resolveWriteback`, ...). Change XboxGPU itself only for console behaviour every
   game would see, and explain it in Xenos terms, not in terms of one game's
   scene. If a fix needs something the hooks can't express, add a general hook.
 - **Measure, don't guess.** Rendering bugs here are almost always one register,
@@ -23,7 +23,7 @@ should read before changing `src/regpu/gpu`.
   `REGPU_*` live switch (`static LiveSwitch x("REGPU_NO_...")`) so it can be
   A/B tested without a rebuild.
 
-## Bringing up a game on ReGPU
+## Bringing up a game on XboxGPU
 
 1. Get the game running on the default `xenos` plugin first; that is the
    reference image.
@@ -89,7 +89,7 @@ py -3 tools/regpu/xbox_fb.py out/xbox.raw out/xbox.png      # untiled, BGRA -> P
 py -3 tools/regpu/xbdm.py peek 82000000 64                  # guest memory
 ```
 
-Same scene, same settings, both sides: if the console shows it too, it isn't a ReGPU bug.
+Same scene, same settings, both sides: if the console shows it too, it isn't a XboxGPU bug.
 
 ## Layout
 
@@ -97,7 +97,7 @@ Same scene, same settings, both sides: if the console shows it too, it isn't a R
 |---|---|
 | `include/regpu/regpu.h` | The API: Config, Host, hooks, Start |
 | `include/regpu/driver.h` | What the kernel's `Vd*` exports reach |
-| `src/regpu/plugin/graphics_system.cpp` | The GPU plugin: ReGPU's host inside Re360 |
+| `src/regpu/plugin/graphics_system.cpp` | The GPU plugin: XboxGPU's host inside Re360 |
 | `src/regpu/gpu/gpu.cpp` | Command processor (PM4 packets), interrupts, vblank, frame cap |
 | `src/regpu/gpu/ucode.cpp` | Xenos shader microcode decoder |
 | `src/regpu/gpu/hlsl.cpp` | Microcode to HLSL (the preamble: fetches, unpacking, constants) |

@@ -1779,7 +1779,7 @@ void regpu::driver::SetRefreshRate(double hz)
 {
     const int64_t us = hz > 0 ? int64_t(1000000 / std::clamp(hz, 24.0, 1000.0)) : 0;
     if (g_vblankUs.exchange(us) != us)
-        Log("gpu: vblank %.2f Hz (0: ReGPU's own)", us ? 1000000.0 / us : 0.0);
+        Log("gpu: vblank %.2f Hz (0: XboxGPU's own)", us ? 1000000.0 / us : 0.0);
 }
 
 // A guest access is a plain load or store, as it is when the file is guest memory: side effects

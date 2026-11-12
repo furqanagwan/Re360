@@ -11942,7 +11942,7 @@ void BenchmarkWriteReport(const char* path)
     FILE* out = fopen(path, "w");
     if (!out)
         return;
-    fprintf(out, "ReGPU benchmark\n\n");
+    fprintf(out, "XboxGPU benchmark\n\n");
     fprintf(out, "CPU:        %s (%u cores, %u threads)\n", cpu.c_str(), cores, GetActiveProcessorCount(ALL_PROCESSOR_GROUPS));
     fprintf(out, "GPU:        %s\n", gpu.c_str());
     fprintf(out, "RAM:        %.0f GB\n", memory.ullTotalPhys / 1073741824.0);
