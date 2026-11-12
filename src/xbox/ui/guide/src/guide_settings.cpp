@@ -15,6 +15,7 @@
 #include <rex/ui/guide/xbox_guide.h>
 
 #include <algorithm>
+#include <tuple>
 #include <vector>
 
 #include <fmt/format.h>
@@ -589,10 +590,12 @@ void XboxGuide::OpenDisplay() {
   pages_.back().on_focus();
 }
 
-void XboxGuide::OpenChoices(std::string title, std::string heading, std::vector<Choice> choices,
-                            size_t current, std::function<void(size_t)> chosen) {
+void XboxGuide::OpenChoices(std::string title, std::string heading,
+                            const std::vector<Choice>& choices, size_t current,
+                            const std::function<void(size_t)>& chosen) {
   xui::Element* scene = PushPage(assets_->options_voice, std::move(title)).scene;
   std::vector<std::string> texts;
+  texts.reserve(choices.size());
   for (const Choice& choice : choices) {
     texts.push_back(choice.text);
   }
@@ -604,13 +607,13 @@ void XboxGuide::OpenChoices(std::string title, std::string heading, std::vector<
   current = std::min(current, rows.size() - 1);
   CheckOnly(group, rows[current]);
   pages_.back().on_focus = [this, scene, rows, choices] {
-    const auto row = std::find(rows.begin(), rows.end(), focus_);
+    const auto row = std::ranges::find(rows, focus_);
     if (row != rows.end()) {
       SetText(scene, "LabelSubHeader1", choices[size_t(row - rows.begin())].details);
     }
   };
   pages_.back().on_select = [this, group, rows, chosen](xui::Element* control) {
-    const auto row = std::find(rows.begin(), rows.end(), control);
+    const auto row = std::ranges::find(rows, control);
     if (row == rows.end()) {
       return;
     }
@@ -657,11 +660,8 @@ void XboxGuide::OpenRenderResolution() {
       }
     }
   }
-  struct Preset {
-    const char* value;
-    const char* text;
-    uint32_t width, height;
-  };
+  // render_resolution value, row text, width, height.
+  using Preset = std::tuple<const char*, const char*, uint32_t, uint32_t>;
   static constexpr Preset kPresets[] = {{"4k", "4K (3840 x 2160)", 3840, 2160},
                                         {"1440p", "1440p (2560 x 1440)", 2560, 1440},
                                         {"1080p", "1080p (1920 x 1080)", 1920, 1080},
@@ -674,15 +674,15 @@ void XboxGuide::OpenRenderResolution() {
                       : "Draws at your display's resolution (or the window's size when windowed). "
                         "The sharpest picture."}};
   std::vector<std::string> values = {""};
-  for (const Preset& preset : kPresets) {
-    if (display_height && preset.height > display_height) {
+  for (const auto& [value, text, width, height] : kPresets) {
+    if (display_height && height > display_height) {
       continue;  // larger than the display: no sharper, only slower
     }
-    choices.push_back({preset.text, fmt::format("Draws at {} x {} and scales it to fit the "
-                                                "screen. Lower is faster on slower graphics "
-                                                "cards; the game's menus and text get softer.",
-                                                preset.width, preset.height)});
-    values.push_back(preset.value);
+    choices.emplace_back(text, fmt::format("Draws at {} x {} and scales it to fit the screen. "
+                                           "Lower is faster on slower graphics cards; the game's "
+                                           "menus and text get softer.",
+                                           width, height));
+    values.emplace_back(value);
   }
   const std::string current_value = REXCVAR_GET(render_resolution);
   size_t current = 0;

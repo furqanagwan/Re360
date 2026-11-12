@@ -251,8 +251,8 @@ class XboxGuide final : public ImGuiDialog {
   };
   // A page of choices, one checked (`current`), its details shown as each is focused;
   // `chosen` applies one and the settings are saved.
-  void OpenChoices(std::string title, std::string heading, std::vector<Choice> choices,
-                   size_t current, std::function<void(size_t)> chosen);
+  void OpenChoices(std::string title, std::string heading, const std::vector<Choice>& choices,
+                   size_t current, const std::function<void(size_t)>& chosen);
 
   void OpenXboxSettings();
   void OpenPatches(std::string_view category);

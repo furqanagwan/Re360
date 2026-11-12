@@ -58,7 +58,8 @@ REXCVAR_DEFINE_STRING(resolution, "", "Display",
                       "Common resolution preset for both guest video mode and window (for "
                       "example: 720p, 1080p, 1440p, 4k, 1280x720)");
 
-REXCVAR_DEFINE_STRING(render_resolution, "", "Display",
+REXCVAR_DEFINE_STRING(render_resolution, "",
+                      "Display",  // NOLINT(readability-redundant-string-init)
                       "Resolution the regpu plugin draws at, scaled to the window: a preset "
                       "(720p, 1080p, 1440p, 4k) or WxH; empty matches the window. Changes "
                       "apply while the game runs; the game's own video mode is unaffected");

@@ -342,7 +342,7 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
   void* host_window_ = nullptr;
   uint32_t output_width_ = 0, output_height_ = 0;    // what ReGPU draws at
   uint32_t pending_width_ = 0, pending_height_ = 0;  // what it should, since pending_since_
-  std::chrono::steady_clock::time_point pending_since_{};
+  std::chrono::steady_clock::time_point pending_since_;
   std::unique_ptr<ui::d3d12::D3D12Provider> provider_;
   std::unique_ptr<ui::Presenter> presenter_;
   std::mutex threads_mutex_;
