@@ -691,12 +691,11 @@ void XboxGuide::OpenRenderResolution() {
       current = i;
     }
   }
-  OpenChoices("Resolution", "Render Resolution", std::move(choices), current,
-              [values](size_t choice) {
-                REXLOG_INFO("Xbox guide: render resolution {}",
-                            values[choice].empty() ? "matching the display" : values[choice]);
-                rex::cvar::SetFlagByName("render_resolution", values[choice]);
-              });
+  OpenChoices("Resolution", "Render Resolution", choices, current, [values](size_t choice) {
+    REXLOG_INFO("Xbox guide: render resolution {}",
+                values[choice].empty() ? "matching the display" : values[choice]);
+    rex::cvar::SetFlagByName("render_resolution", values[choice]);
+  });
 }
 
 void XboxGuide::OpenXboxSettings() {
