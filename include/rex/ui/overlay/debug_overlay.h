@@ -31,6 +31,7 @@ class DebugOverlayDialog : public ImGuiDialog {
   ~DebugOverlayDialog();
 
   void SetStatsProvider(FrameStatsProvider provider) { stats_provider_ = std::move(provider); }
+  bool UsesMouse() const override { return false; }  // statistics only
 
  protected:
   void OnDraw(ImGuiIO& io) override;

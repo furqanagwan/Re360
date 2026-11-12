@@ -49,6 +49,8 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
   void RemoveDialog(ImGuiDialog* dialog);
 
   bool HasDialogs() const { return !dialogs_.empty(); }
+  // Whether an open dialog is used with the mouse (ImGuiDialog::UsesMouse).
+  bool HasMouseDialogs() const;
   // Called after a dialog is added or removed (on the UI thread, possibly while dialogs draw).
   void SetDialogsChangedCallback(std::function<void()> callback) {
     dialogs_changed_ = std::move(callback);

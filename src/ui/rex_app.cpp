@@ -1443,7 +1443,12 @@ void ReXApp::UpdateCursorVisibility() {
   // launcher (Steam Input, Quiver) maps it to the mouse (007 #48). The mouse-look capture
   // (input/mnk) hides it for itself while it holds the pointer.
   using Visibility = ui::Window::CursorVisibility;
-  const bool dialogs = imgui_drawer_ && imgui_drawer_->HasDialogs();
+  const bool dialogs = imgui_drawer_ && imgui_drawer_->HasMouseDialogs();
+  REXLOG_DEBUG("Cursor: {} (dialogs open: {}, fullscreen: {})",
+               dialogs                   ? "shown"
+               : window_->IsFullscreen() ? "hidden"
+                                         : "hidden when still",
+               dialogs, window_->IsFullscreen());
   window_->SetCursorVisibility(dialogs                   ? Visibility::kVisible
                                : window_->IsFullscreen() ? Visibility::kHidden
                                                          : Visibility::kAutoHidden);

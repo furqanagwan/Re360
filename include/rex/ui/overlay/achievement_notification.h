@@ -20,6 +20,7 @@ class AchievementNotificationDialog : public ImGuiDialog {
   ~AchievementNotificationDialog() override = default;
 
   virtual void Push(const rex::system::AchievementEvent& event) = 0;
+  bool UsesMouse() const override { return false; }  // always open, never clicked
 
  protected:
   explicit AchievementNotificationDialog(ImGuiDrawer* drawer) : ImGuiDialog(drawer) {}

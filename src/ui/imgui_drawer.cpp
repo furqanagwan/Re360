@@ -9,6 +9,7 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <algorithm>
 #include <cfloat>
 #include <cstring>
 #include <filesystem>
@@ -129,6 +130,11 @@ void ImGuiDrawer::AddDialog(ImGuiDialog* dialog) {
   if (dialogs_changed_) {
     dialogs_changed_();
   }
+}
+
+bool ImGuiDrawer::HasMouseDialogs() const {
+  return std::ranges::any_of(dialogs_,
+                             [](const ImGuiDialog* dialog) { return dialog->UsesMouse(); });
 }
 
 void ImGuiDrawer::RemoveDialog(ImGuiDialog* dialog) {
