@@ -934,10 +934,13 @@ bool ReXApp::SetupPresentation() {
   }
   window_->SetMonitor(REXCVAR_GET(monitor));
 
+  // Deferred, even on the UI thread: the Xbox guide changes these from inside its own drawing,
+  // and switching the window there (fullscreen resizes the swap chain mid-frame) ended the
+  // process at once.
   auto on_window_cvar = [this](const char* name, std::function<void(std::string_view)> apply) {
     rex::cvar::RegisterChangeCallback(
         name, [this, apply = std::move(apply)](std::string_view, std::string_view value) {
-          app_context().CallInUIThread([this, apply, value = std::string(value)] {
+          app_context().CallInUIThreadDeferred([this, apply, value = std::string(value)] {
             if (window_) {
               apply(value);
             }
@@ -1481,7 +1484,9 @@ void ReXApp::ToggleGuide() {
   host.local_dir = local_dir_;
   host.restart_title = [this] { restart_on_exit_ = true; };
   host.display_scale = DisplayScale(DisplayHeight(window_.get()));
-  host.renderer = config_.gpu_plugin;
+  // (Resolved again: config_ has been moved into the runtime by now.)
+  host.renderer = rex::system::ResolveGpuPluginName(
+      REXCVAR_GET(gpu_plugin), rex::system::IsGpuPluginStaged(rex::system::kDefaultGpuPlugin));
   host.audio_outputs = [] { return rex::audio::ListAudioOutputs(); };
   host.displays = [this] {
     auto* win32 = static_cast<ui::Win32Window*>(window_.get());
