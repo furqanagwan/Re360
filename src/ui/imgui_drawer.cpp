@@ -126,6 +126,9 @@ void ImGuiDrawer::AddDialog(ImGuiDialog* dialog) {
     }
   }
   dialogs_.push_back(dialog);
+  if (dialogs_changed_) {
+    dialogs_changed_();
+  }
 }
 
 void ImGuiDrawer::RemoveDialog(ImGuiDialog* dialog) {
@@ -142,6 +145,9 @@ void ImGuiDrawer::RemoveDialog(ImGuiDialog* dialog) {
   }
   dialogs_.erase(it);
   DetachIfLastDialogRemoved();
+  if (dialogs_changed_) {
+    dialogs_changed_();
+  }
 }
 
 void ImGuiDrawer::Initialize() {

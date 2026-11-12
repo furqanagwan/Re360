@@ -49,6 +49,10 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
   void RemoveDialog(ImGuiDialog* dialog);
 
   bool HasDialogs() const { return !dialogs_.empty(); }
+  // Called after a dialog is added or removed (on the UI thread, possibly while dialogs draw).
+  void SetDialogsChangedCallback(std::function<void()> callback) {
+    dialogs_changed_ = std::move(callback);
+  }
 
   void SetPresenter(Presenter* new_presenter);
   void SetImmediateDrawer(ImmediateDrawer* new_immediate_drawer);
@@ -96,6 +100,7 @@ class ImGuiDrawer : public WindowInputListener, public UIDrawer {
   ImGuiContext* internal_state_ = nullptr;
 
   std::vector<ImGuiDialog*> dialogs_;
+  std::function<void()> dialogs_changed_;
 
   size_t dialog_loop_next_index_ = SIZE_MAX;
 

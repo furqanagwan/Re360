@@ -950,6 +950,7 @@ bool ReXApp::SetupPresentation() {
 
   on_window_cvar("fullscreen", [this](std::string_view value) {
     window_->SetFullscreen(rex::string::from_string<bool>(value, false));
+    UpdateCursorVisibility();
   });
   on_window_cvar("fullscreen_exclusive",
                  [this](std::string_view) { window_->RefreshFullscreen(); });
@@ -1011,6 +1012,10 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
       [this](ImGuiStyle& imgui_style, rex::ui::Style& ui_style) {
         OnConfigureStyle(imgui_style, ui_style);
       });
+  // (Queued: a dialog can close itself while dialogs draw.)
+  imgui_drawer_->SetDialogsChangedCallback(
+      [this] { app_context().CallInUIThreadDeferred([this] { UpdateCursorVisibility(); }); });
+  UpdateCursorVisibility();
 
   imgui_drawer_->SetPresenterAndImmediateDrawer(presenter, drawer);
   rex::ui::RegisterBind("bind_debug_overlay", "F3", "Toggle debug overlay", [this] {
@@ -1428,6 +1433,20 @@ void ReXApp::StopGuide() {
   kernel::xam::xeXamSetKeyboardProvider(nullptr);
   guide_media_.reset();
   rex::ui::UnregisterBind("bind_xbox_guide");
+}
+
+void ReXApp::UpdateCursorVisibility() {
+  if (!window_) {
+    return;
+  }
+  // A visible cursor sat over the game in fullscreen, and moved with the right stick where a
+  // launcher (Steam Input, Quiver) maps it to the mouse (007 #48). The mouse-look capture
+  // (input/mnk) hides it for itself while it holds the pointer.
+  using Visibility = ui::Window::CursorVisibility;
+  const bool dialogs = imgui_drawer_ && imgui_drawer_->HasDialogs();
+  window_->SetCursorVisibility(dialogs                   ? Visibility::kVisible
+                               : window_->IsFullscreen() ? Visibility::kHidden
+                                                         : Visibility::kAutoHidden);
 }
 
 void ReXApp::ToggleGuide() {
