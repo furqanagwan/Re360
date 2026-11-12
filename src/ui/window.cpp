@@ -58,6 +58,12 @@ REXCVAR_DEFINE_STRING(resolution, "", "Display",
                       "Common resolution preset for both guest video mode and window (for "
                       "example: 720p, 1080p, 1440p, 4k, 1280x720)");
 
+// NOLINTNEXTLINE(readability-redundant-string-init)
+REXCVAR_DEFINE_STRING(render_resolution, "", "Display",
+                      "Resolution the regpu plugin draws at, scaled to the window: a preset "
+                      "(720p, 1080p, 1440p, 4k) or WxH; empty matches the window. Changes "
+                      "apply while the game runs; the game's own video mode is unaffected");
+
 REXCVAR_DEFINE_DOUBLE(video_mode_refresh_rate, 60.0, "Display",
                       "Guest video mode refresh rate in Hz")
     .range(24.0, 240.0)

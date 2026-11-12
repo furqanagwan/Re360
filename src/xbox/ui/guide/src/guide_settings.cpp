@@ -15,6 +15,7 @@
 #include <rex/ui/guide/xbox_guide.h>
 
 #include <algorithm>
+#include <tuple>
 #include <vector>
 
 #include <fmt/format.h>
@@ -30,6 +31,9 @@ REXCVAR_DECLARE(int32_t, audio_volume);
 REXCVAR_DECLARE(bool, audio_mute_minimized);
 REXCVAR_DECLARE(std::string, audio_output_device);
 REXCVAR_DECLARE(int32_t, monitor);
+REXCVAR_DECLARE(bool, fullscreen);
+REXCVAR_DECLARE(bool, fullscreen_exclusive);
+REXCVAR_DECLARE(std::string, render_resolution);
 
 namespace rex::ui::guide {
 namespace {
@@ -245,8 +249,15 @@ void XboxGuide::OpenPreferences() {
     AddEntry(scene, "btnVoice", host_.audio_outputs ? "btnAudioOutput" : "btnVoice", "btnDisplay",
              "Display");
   }
+  AddEntry(scene, "btnVoice",
+           host_.displays        ? "btnDisplay"
+           : host_.audio_outputs ? "btnAudioOutput"
+                                 : "btnVoice",
+           "btnDisplayMode", "Display Mode");
 
-  if (!assets_->has_xbox_settings) {
+  // ReGPU's resolution is its own page; the emulated GPU's scale is Xbox Settings when the
+  // console's settings are there, this page otherwise.
+  if (host_.renderer == "regpu" || !assets_->has_xbox_settings) {
     AddEntry(scene, "btnController", "btnController", "btnResolution", "Resolution");
   }
   pages_.back().on_select = [this](xui::Element* control) {
@@ -259,10 +270,16 @@ void XboxGuide::OpenPreferences() {
       OpenAudioOutput();
     } else if (id == "btnDisplay") {
       OpenDisplay();
+    } else if (id == "btnDisplayMode") {
+      OpenDisplayMode();
     } else if (id == "btnController") {
       OpenVibration();
     } else if (id == "btnResolution") {
-      OpenResolution();
+      if (host_.renderer == "regpu") {
+        OpenRenderResolution();
+      } else {
+        OpenResolution();
+      }
     }
   };
 
@@ -571,6 +588,114 @@ void XboxGuide::OpenDisplay() {
   };
   SetFocus(rows[chosen], true);
   pages_.back().on_focus();
+}
+
+void XboxGuide::OpenChoices(std::string title, std::string heading,
+                            const std::vector<Choice>& choices, size_t current,
+                            const std::function<void(size_t)>& chosen) {
+  xui::Element* scene = PushPage(assets_->options_voice, std::move(title)).scene;
+  std::vector<std::string> texts;
+  texts.reserve(choices.size());
+  for (const Choice& choice : choices) {
+    texts.push_back(choice.text);
+  }
+  const std::vector<xui::Element*> rows = FillPlayThroughList(scene, texts, std::move(heading));
+  if (rows.empty()) {
+    return;
+  }
+  xui::Element* group = rows.front()->parent();
+  current = std::min(current, rows.size() - 1);
+  CheckOnly(group, rows[current]);
+  pages_.back().on_focus = [this, scene, rows, choices] {
+    const auto row = std::ranges::find(rows, focus_);
+    if (row != rows.end()) {
+      SetText(scene, "LabelSubHeader1", choices[size_t(row - rows.begin())].details);
+    }
+  };
+  pages_.back().on_select = [this, group, rows, chosen](xui::Element* control) {
+    const auto row = std::ranges::find(rows, control);
+    if (row == rows.end()) {
+      return;
+    }
+    chosen(size_t(row - rows.begin()));
+    CheckOnly(group, control);
+    if (host_.save_settings) {
+      host_.save_settings();
+    }
+  };
+  SetFocus(rows[current], true);
+  pages_.back().on_focus();
+}
+
+void XboxGuide::OpenDisplayMode() {
+  // (fullscreen_exclusive first: its change refreshes a fullscreen window in its new mode.)
+  const size_t current = !REXCVAR_GET(fullscreen) ? 2 : REXCVAR_GET(fullscreen_exclusive) ? 1 : 0;
+  OpenChoices(
+      "Display Mode", "Show The Game",
+      {{"Fullscreen",
+        "Fills the screen without changing the display's own settings, so switching to other "
+        "windows is instant. Recommended."},
+       {"Fullscreen (Exclusive)",
+        "Fills the screen and sets the display to the game's mode. Switching to other windows "
+        "takes a moment while the display changes back."},
+       {"Windowed",
+        "Plays in a window you can move and resize. The game draws at the window's size unless "
+        "Resolution sets one."}},
+      current, [](size_t choice) {
+        static constexpr const char* kNames[] = {"fullscreen", "exclusive fullscreen", "windowed"};
+        REXLOG_INFO("Xbox guide: display mode {}", kNames[choice]);
+        rex::cvar::SetFlagByName("fullscreen_exclusive", choice == 1 ? "true" : "false");
+        rex::cvar::SetFlagByName("fullscreen", choice == 2 ? "false" : "true");
+      });
+}
+
+void XboxGuide::OpenRenderResolution() {
+  // The display the game is on, for its size and the sizes worth offering.
+  uint32_t display_width = 0, display_height = 0;
+  if (host_.displays) {
+    for (const DisplayInfo& display : host_.displays()) {
+      if (display.shows_game) {
+        display_width = display.native_width ? display.native_width : display.width;
+        display_height = display.native_height ? display.native_height : display.height;
+      }
+    }
+  }
+  // render_resolution value, row text, width, height.
+  using Preset = std::tuple<const char*, const char*, uint32_t, uint32_t>;
+  static constexpr Preset kPresets[] = {{"4k", "4K (3840 x 2160)", 3840, 2160},
+                                        {"1440p", "1440p (2560 x 1440)", 2560, 1440},
+                                        {"1080p", "1080p (1920 x 1080)", 1920, 1080},
+                                        {"720p", "720p (1280 x 720)", 1280, 720}};
+  std::vector<Choice> choices = {
+      {"Match Display",
+       display_height ? fmt::format("Draws at your display's {} x {} (or the window's size when "
+                                    "windowed). The sharpest picture.",
+                                    display_width, display_height)
+                      : "Draws at your display's resolution (or the window's size when windowed). "
+                        "The sharpest picture."}};
+  std::vector<std::string> values = {""};
+  for (const auto& [value, text, width, height] : kPresets) {
+    if (display_height && height > display_height) {
+      continue;  // larger than the display: no sharper, only slower
+    }
+    choices.emplace_back(text, fmt::format("Draws at {} x {} and scales it to fit the screen. "
+                                           "Lower is faster on slower graphics cards; the game's "
+                                           "menus and text get softer.",
+                                           width, height));
+    values.emplace_back(value);
+  }
+  const std::string current_value = REXCVAR_GET(render_resolution);
+  size_t current = 0;
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (values[i] == current_value) {
+      current = i;
+    }
+  }
+  OpenChoices("Resolution", "Render Resolution", choices, current, [values](size_t choice) {
+    REXLOG_INFO("Xbox guide: render resolution {}",
+                values[choice].empty() ? "matching the display" : values[choice]);
+    rex::cvar::SetFlagByName("render_resolution", values[choice]);
+  });
 }
 
 void XboxGuide::OpenXboxSettings() {

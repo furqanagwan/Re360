@@ -79,8 +79,13 @@ shared by both plugins; ReGPU's own copies were removed in the merge.
 ## What it does not do yet
 
 - **Runtime settings.** `resolution_scale` and the other GPU cvars belong to
-  the `xenos` plugin. ReGPU renders at the game window's size when the game
-  starts and takes its switches from `REGPU_*` environment variables.
+  the `xenos` plugin. ReGPU draws at the `render_resolution` cvar's size (a
+  preset such as `1080p`, or `WxH`) or, when it is empty, at the window's
+  client size, following either while the game runs: a size kept for 300 ms is
+  applied between frames, and the presenter scales the frame to the window.
+  The Xbox guide sets it (Settings > Resolution), and Settings > Display Mode
+  sets `fullscreen` and `fullscreen_exclusive`. Other switches are `REGPU_*`
+  environment variables.
 - **Frame size.** The renderer starts at 1280x720 and follows the front buffer
   size the title's first swap reports, so a title that renders 1024x600 shows
   its first frame wrong and the rest right. Front buffers above 1280x720 are
