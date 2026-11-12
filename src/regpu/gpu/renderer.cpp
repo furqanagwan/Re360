@@ -355,6 +355,17 @@ constexpr UINT kBindless = 1u << 16;      // permanent texture descriptors (0 nu
 constexpr UINT kBindlessBase = kDescriptorsPerFrame * 3;
 // The EDRAM colour target: half floats hold the title's HDR (7e3) range.
 constexpr DXGI_FORMAT kColorFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
+// The 32-bit float colour formats (RB_COLOR_INFO format 14 k_32_FLOAT, 15 k_32_32_FLOAT) get a target
+// that keeps all 32 bits: titles draw depth into them (shadow maps, linear depth for later passes), and
+// a half float's 11 bits of it put shadows in the wrong place or dropped them with distance.
+// REGPU_NO_FLOAT32_TARGETS=1: half floats like the rest, as before (read at start: pipelines key on it).
+constexpr DXGI_FORMAT kWideColorFormat = DXGI_FORMAT_R32G32_FLOAT;
+bool WideColorTarget()
+{
+    static const bool off = getenv("REGPU_NO_FLOAT32_TARGETS") != nullptr;
+    const uint32_t format = (gpureg::Get(0x2001 /* RB_COLOR_INFO */) >> 16) & 0xF;
+    return !off && (format == 14 || format == 15);
+}
 constexpr UINT kMaxSurfaces = 64; // EDRAM bases with host surfaces
 // Samples per pixel of the scene surfaces (anti-aliasing, Settings::msaa). The blits that
 // read them use multisampled shaders when this is above 1.
@@ -628,8 +639,8 @@ struct Renderer
     ComPtr<ID3D12RootSignature> motionRootSignature; // root signature + b2 (motion-vector pipelines)
     ComPtr<ID3D12PipelineState> depthBlit;                // depth buffer -> R32_FLOAT
     ComPtr<ID3D12PipelineState> depthPackBlit;            // depth and stencil -> the guest's D24S8 words as RGBA8
-    ComPtr<ID3D12PipelineState> colorBlit8, colorBlit16;  // colour -> 8888 / RGBA16F, scaled
-    ComPtr<ID3D12PipelineState> depthBlitMs[9], colorBlitMs8[9], colorBlitMs16[9]; // the same from multisampled surfaces, by sample count
+    ComPtr<ID3D12PipelineState> colorBlit8, colorBlit16, colorBlit32;  // colour -> 8888 / RGBA16F / RG32F (kWideColorFormat), scaled
+    ComPtr<ID3D12PipelineState> depthBlitMs[9], colorBlitMs8[9], colorBlitMs16[9], colorBlitMs32[9]; // the same from multisampled surfaces, by sample count
     // EDRAM surfaces: one host colour and one host depth target per EDRAM base
     // (RB_COLOR_INFO / RB_DEPTH_INFO bits 0-11), so passes that the title
     // places at different EDRAM offsets do not overwrite each other.
@@ -1215,6 +1226,174 @@ uint64_t TraceFrame()
 // Why GetTexture last found nothing to bind (the draw then samples the white fallback): shown in
 // the F12 capture (out/capture/textures.txt).
 thread_local char g_textureFailure[96] = "";
+// ---- Render audit: every place XboxGPU knowingly draws something other than what the console's GPU
+// was asked for (a texture it can't decode, a setting it ignores, an output it drops, a draw it
+// skips), each kind logged once as it is first met ("audit: AREA: ...") and counted, with a ranked
+// summary, regpu-audit.txt, beside regpu.log every 30 s and at exit. Game-neutral: it keys on the
+// Xenos state, so any title gets it. On by default (one hash lookup per check); REGPU_NO_AUDIT=1 off.
+// For finding what makes a scene look wrong without a capture: the area, the setting, the shaders.
+struct RenderAudit
+{
+    struct Entry
+    {
+        std::string area, what;
+        uint64_t firstVs = 0, firstPs = 0, firstFrame = 0, uses = 0;
+        std::set<uint64_t> shaders; // pixel shaders that met it (up to 64)
+    };
+    std::mutex mutex;
+    std::unordered_map<uint64_t, Entry> entries;
+    std::chrono::steady_clock::time_point lastWrite = std::chrono::steady_clock::now();
+
+    static bool On()
+    {
+        static LiveSwitch off("REGPU_NO_AUDIT");
+        return !off;
+    }
+
+    // `key` tells kinds apart (hash the area and what distinguishes them); `describe` runs only the
+    // first time a key is met.
+    template <typename Describe>
+    void Note(const char* area, uint64_t key, Describe&& describe)
+    {
+        bool write = false;
+        {
+            std::lock_guard lock(mutex);
+            Entry& e = entries[key];
+            if (e.uses++ == 0)
+            {
+                e.area = area;
+                e.what = describe();
+                e.firstVs = C().vsHash;
+                e.firstPs = C().psHash;
+                e.firstFrame = g_r.frame;
+                Log("audit: %s: %s (vs %016llx ps %016llx, frame %llu)", area, e.what.c_str(), (unsigned long long)e.firstVs,
+                    (unsigned long long)e.firstPs, (unsigned long long)g_r.frame);
+            }
+            if (e.shaders.size() < 64)
+                e.shaders.insert(C().psHash);
+            write = std::chrono::steady_clock::now() - lastWrite > std::chrono::seconds(30);
+        }
+        if (write)
+            WriteSummary();
+    }
+
+    static uint64_t Key(const char* area, std::initializer_list<uint64_t> parts)
+    {
+        uint64_t h = 0xCBF29CE484222325ull;
+        for (const char* c = area; *c; c++)
+            h = (h ^ uint8_t(*c)) * 0x100000001B3ull;
+        for (uint64_t p : parts)
+            h = (h ^ p) * 0x100000001B3ull;
+        return h;
+    }
+
+    void WriteSummary()
+    {
+        std::lock_guard lock(mutex);
+        lastWrite = std::chrono::steady_clock::now();
+        std::vector<const Entry*> sorted;
+        for (const auto& [key, e] : entries)
+            sorted.push_back(&e);
+        std::sort(sorted.begin(), sorted.end(), [](const Entry* a, const Entry* b) {
+            return a->area != b->area ? a->area < b->area : a->uses > b->uses;
+        });
+        const char* dir = getenv("REGPU_LOG_DIR");
+        FILE* f = fopen(dir && *dir ? (std::string(dir) + "\\regpu-audit.txt").c_str() : "regpu-audit.txt", "w");
+        if (!f)
+            return;
+        fprintf(f,
+            "XboxGPU render audit at frame %llu: where XboxGPU draws something other than what the game asked the\n"
+            "Xbox 360 GPU for, by area, most used first. A scene that looks wrong usually traces to one of these:\n"
+            "the shaders listed are the ones to look at (regpuctl hlsl HASH; ps HASH tint shows what they draw).\n"
+            "uses: times met (texture bindings once per frame each; draws each time).\n",
+            (unsigned long long)g_r.frame);
+        std::string area;
+        for (const Entry* e : sorted)
+        {
+            if (e->area != area)
+                fprintf(f, "\n== %s\n", (area = e->area).c_str());
+            fprintf(f, "%10llu uses %3zu shaders  %s\n                             first: vs %016llx ps %016llx, frame %llu\n",
+                (unsigned long long)e->uses, e->shaders.size(), e->what.c_str(), (unsigned long long)e->firstVs,
+                (unsigned long long)e->firstPs, (unsigned long long)e->firstFrame);
+        }
+        fclose(f);
+    }
+
+    // One texture binding of a draw: what about it XboxGPU does not reproduce.
+    void CheckTexture(const TextureFetch& fetch, bool bound, const char* failure, bool gammaApplied)
+    {
+        const char* dims[] = { "1D", "2D", "3D", "cube" };
+        const uint32_t format = fetch.Format(), dimension = fetch.Dimension() & 3;
+        auto name = [&] {
+            char n[96];
+            snprintf(n, sizeof(n), "%s %s (format %u), e.g. %ux%u at %08X", dims[dimension], TextureFormatName(format), format,
+                fetch.Width(), fetch.Height(), fetch.Address());
+            return std::string(n);
+        };
+        if (!bound)
+        {
+            const std::string why = failure && *failure ? failure : "";
+            Note("textures", Key("unbound", { format, dimension, std::hash<std::string>{}(why) }),
+                [&] { return "NOT BOUND, the draw samples white: " + name() + (why.empty() ? "" : "; " + why); });
+            return;
+        }
+        // Per-channel sign mode (dword 0 bits 2-9): 0 unsigned, 1 signed, 2 biased (x2-1), 3 gamma.
+        const uint32_t signs = (fetch.dwords[0] >> 2) & 0xFF;
+        char pattern[5] = "....";
+        uint32_t modes = 0;
+        for (uint32_t c = 0; c < 4; c++)
+        {
+            const uint32_t mode = (signs >> (2 * c)) & 3;
+            modes |= 1u << mode;
+            pattern[c] = "usbg"[mode];
+        }
+        // Float formats (and the EXPAND ones, read as float) are signed and non-normalised by nature.
+        const bool isFloat = format == 23 || (format >= 27 && format <= 32) || (format >= 36 && format <= 38);
+        if ((modes & 2) && !isFloat)
+            Note("textures", Key("signed", { format, signs }), [&] {
+                return std::string("SIGNED channels read as unsigned 0-1 instead of -1 to 1 (xyzw ") + pattern + "): " + name();
+            });
+        if (modes & 4)
+            Note("textures", Key("biased", { format, signs }), [&] {
+                return std::string("BIASED channels (x2-1) read as unsigned (xyzw ") + pattern + "): " + name();
+            });
+        if ((modes & 8) && !gammaApplied)
+            Note("textures", Key("gamma", { format, signs }), [&] {
+                return std::string("GAMMA channels read as linear, Xenia converts them (xyzw ") + pattern + ", REGPU_TEXTURE_GAMMA off): " + name();
+            });
+        if ((fetch.dwords[3] & 1) && !isFloat)
+            Note("textures", Key("integer", { format }), [&] { return "INTEGER number format read as normalised 0-1: " + name(); });
+    }
+
+    // A draw about to be recorded: its outputs and the shader features XboxGPU drops.
+    void CheckDraw(const TranslatedShader& vs, const TranslatedShader& ps, uint32_t edramMode)
+    {
+        if (vs.memExport)
+            Note("shaders", Key("memexport", { C().vsHash }),
+                [] { return std::string("MEMORY EXPORT (eA/eM) not translated: this vertex shader's writes to memory are lost"); });
+        if (edramMode != 4) // depth-only passes write no colour
+            return;
+        if (const uint32_t lost = ps.colorExports & ~1u)
+            Note("render targets", Key("mrt", { lost }), [&] {
+                return "MULTIPLE RENDER TARGETS: the pixel shader also writes colour output(s)" + std::string(lost & 2 ? " 1" : "") +
+                    (lost & 4 ? " 2" : "") + (lost & 8 ? " 3" : "") + ", which are dropped (only output 0 is drawn)";
+            });
+        // Every colour target is RGBA16F here (kColorFormat): what that loses, by the guest format.
+        const uint32_t rt = (gpureg::Get(RB_COLOR_INFO) >> 16) & 0xF;
+        static LiveSwitch resolveGamma("REGPU_RESOLVE_GAMMA");
+        if (rt == 1 && !resolveGamma)
+            Note("render targets", Key("rt-gamma", {}), [] {
+                return std::string("GAMMA render target (k_8_8_8_8_GAMMA) kept linear, blended in linear and copied out linear "
+                                   "(REGPU_RESOLVE_GAMMA off)");
+            });
+        if ((rt == 14 || rt == 15) && !WideColorTarget())
+            Note("render targets", Key("rt-f32", { rt }), [&] {
+                return std::string(rt == 14 ? "k_32_FLOAT" : "k_32_32_FLOAT") +
+                    " render target kept as 16-bit float: precision lost (depth or shadow data drawn as colour)";
+            });
+    }
+} g_audit;
+
 void NoteTextureFailure(const char* why, const TextureFetch& fetch)
 {
     snprintf(g_textureFailure, sizeof(g_textureFailure), "%s (type %u dim %u format %u)", why, fetch.Type(), fetch.Dimension(), fetch.Format());
@@ -1774,6 +1953,8 @@ float4 psColor(float4 pos : SV_Position) : SV_Target
     Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlit8)), "CreateGraphicsPipelineState(colour blit 8)");
     pd.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
     Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlit16)), "CreateGraphicsPipelineState(colour blit 16)");
+    pd.RTVFormats[0] = kWideColorFormat;
+    Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlit32)), "CreateGraphicsPipelineState(colour blit 32)");
     // The same passes reading a multisampled surface, for each supported sample count (regpu::SetMsaa can
     // change it while the game runs): depth takes sample 0, colour averages all samples.
     for (uint32_t samples = 2; samples <= 8; samples *= 2)
@@ -1846,6 +2027,8 @@ float4 psColor(float4 pos : SV_Position) : SV_Target
         Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlitMs8[samples])), "CreateGraphicsPipelineState(colour blit ms 8)");
         pd.RTVFormats[0] = DXGI_FORMAT_R16G16B16A16_FLOAT;
         Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlitMs16[samples])), "CreateGraphicsPipelineState(colour blit ms 16)");
+        pd.RTVFormats[0] = kWideColorFormat;
+        Check(d->CreateGraphicsPipelineState(&pd, IID_PPV_ARGS(&g_r.colorBlitMs32[samples])), "CreateGraphicsPipelineState(colour blit ms 32)");
     }
 }
 
@@ -2308,7 +2491,7 @@ void TransitionColor(D3D12_RESOURCE_STATES to);
 bool TemporalInit();
 void BeginTemporalFrame();
 
-Renderer::Surface& GetSurface(bool depth, uint32_t base)
+Renderer::Surface& GetSurface(bool depth, uint32_t base, bool wide = false)
 {
     std::lock_guard surfaceLock(g_surfaceMutex);
     auto& map = depth ? g_r.depthSurfaces : g_r.colorSurfaces;
@@ -2347,7 +2530,7 @@ Renderer::Surface& GetSurface(bool depth, uint32_t base)
     }
     else
     {
-        td.Format = kColorFormat;
+        td.Format = wide ? kWideColorFormat : kColorFormat;
         td.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
         cv.Format = td.Format;
         Check(g_r.device->CreateCommittedResource(&hp, D3D12_HEAP_FLAG_NONE, &td, D3D12_RESOURCE_STATE_RENDER_TARGET, &cv,
@@ -2357,7 +2540,7 @@ Renderer::Surface& GetSurface(bool depth, uint32_t base)
         s.view.ptr += SIZE_T(index) * g_r.device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         C().list->CreateRenderTargetView(g_r.device, s.resource.Get(), s.view); // in order with the recorded commands
     }
-    Log("renderer: EDRAM %s surface at base %03X", depth ? "depth" : "colour", base);
+    Log("renderer: EDRAM %s surface at base %03X%s", depth ? "depth" : "colour", base & 0xFFF, wide ? " (32-bit float)" : "");
     return s;
 }
 
@@ -2393,14 +2576,15 @@ void SelectSurfaces(bool force)
     static LiveSwitch byBase("REGPU_SURFACE_BY_BASE"), byPitch("REGPU_SURFACE_BY_PITCH");
     const uint32_t surfaceInfo = gpureg::Get(RB_SURFACE_INFO);
     const uint32_t rowSamples = (surfaceInfo & 0x3FFF) * (byPitch ? 1u : MsaaAcross((surfaceInfo >> 16) & 3));
-    const uint32_t colorBase = (gpureg::Get(RB_COLOR_INFO) & 0xFFF) | (byBase ? 0u : rowSamples << 12),
+    const bool wide = WideColorTarget(); // (its own surface: bit 31 of the key)
+    const uint32_t colorBase = (gpureg::Get(RB_COLOR_INFO) & 0xFFF) | (byBase ? 0u : (rowSamples << 12) & 0x7FFFF000u) | (wide ? 1u << 31 : 0u),
                    depthBase = gpureg::Get(RB_DEPTH_INFO) & 0xFFF;
     if (!force && colorBase == C().colorBase && depthBase == C().depthBase)
         return;
     if (C().colorBase != ~0u && !C().worker) // (workers leave surfaces as render targets)
         if (auto it = g_r.colorSurfaces.find(C().colorBase); it != g_r.colorSurfaces.end()) // (not a new empty one)
             it->second.state = C().colorState;
-    Renderer::Surface& c = GetSurface(false, colorBase);
+    Renderer::Surface& c = GetSurface(false, colorBase, wide);
     Renderer::Surface& z = GetSurface(true, depthBase);
     C().color = c.resource;
     C().colorState = c.state;
@@ -4520,7 +4704,11 @@ D3D12_BLEND Blend(uint32_t f)
     case 13: return D3D12_BLEND_INV_BLEND_FACTOR;
     case 15: return D3D12_BLEND_INV_ALPHA_FACTOR;
     case 16: return D3D12_BLEND_SRC_ALPHA_SAT;
-    default: return D3D12_BLEND_ONE;
+    default:
+        if (RenderAudit::On())
+            g_audit.Note("blending", RenderAudit::Key("blend", { f }),
+                [&] { return "BLEND FACTOR " + std::to_string(f) + " has no host form: drawn as ONE"; });
+        return D3D12_BLEND_ONE;
     }
 }
 
@@ -4921,7 +5109,7 @@ std::shared_ptr<PipelineEntry> EnsurePipeline(const CompiledShader& vs, const Co
     pd.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
     pd.IBStripCutValue = key.flags & 0x100 ? D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_0xFFFF : D3D12_INDEX_BUFFER_STRIP_CUT_VALUE_DISABLED;
     pd.NumRenderTargets = 1;
-    pd.RTVFormats[0] = kColorFormat;
+    pd.RTVFormats[0] = key.flags & 0x400 ? kWideColorFormat : kColorFormat; // (0x400: MakePipelineKey, a 32-bit float target)
     pd.DSVFormat = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
     pd.SampleDesc.Count = g_msaa;
     const bool motion = key.flags & 4; // motion-vector variants: a second target for the motion
@@ -5049,7 +5237,7 @@ PipelineKey MakePipelineKey(uint64_t vsHash, uint64_t psHash, bool depthOnly, bo
         memcpy(&biasOffset, &v, 4);
     }
     PipelineKey key{ vsHash, psHash, blend, depth, stencil | (mask << 24) | (mode << 28),
-        uint32_t(alphaToMask) | (uint32_t(cullable) << 1) | (uint32_t(noDepthClip) << 2) };
+        uint32_t(alphaToMask) | (uint32_t(cullable) << 1) | (uint32_t(noDepthClip) << 2) | (WideColorTarget() ? 0x400u : 0u) };
     key.biasScale = biasScale;
     key.biasOffset = biasOffset;
     return key;
@@ -6714,7 +6902,7 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
 
     const UINT slot = f.descriptorBase + f.descriptorsUsed++;
     D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
-    srv.Format = depth ? DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS : kColorFormat;
+    srv.Format = depth ? DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS : C().color->GetDesc().Format; // (kColorFormat or kWideColorFormat)
     srv.ViewDimension = g_msaa > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DMS : D3D12_SRV_DIMENSION_TEXTURE2D;
     srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
     srv.Texture2D.MipLevels = 1;
@@ -6743,6 +6931,7 @@ void BlitResolve(bool depth, uint32_t base, uint32_t width, uint32_t height, DXG
     const bool ms = g_msaa > 1;
     ID3D12PipelineState* pso = depth ? (ms ? g_r.depthBlitMs[g_msaa].Get() : g_r.depthBlit.Get())
         : format == DXGI_FORMAT_R8G8B8A8_UNORM ? (ms ? g_r.colorBlitMs8[g_msaa].Get() : g_r.colorBlit8.Get())
+        : format == kWideColorFormat ? (ms ? g_r.colorBlitMs32[g_msaa].Get() : g_r.colorBlit32.Get())
         : (ms ? g_r.colorBlitMs16[g_msaa].Get() : g_r.colorBlit16.Get());
     C().list->OMSetRenderTargets(1, &rtv, FALSE, nullptr);
     C().list->SetGraphicsRootSignature(g_r.blitRootSignature.Get());
@@ -7760,7 +7949,9 @@ void Resolve()
         // the HDR range. REGPU_NO_1010102_AS_8888 keeps every one HDR.
         static LiveSwitch no1010102("REGPU_NO_1010102_AS_8888");
         const int bias = int32_t(info << 10) >> 26; // bits 16-21, signed
+        // (A 32-bit float target copied to a 32-bit float texture, 36 k_32_FLOAT or 37 k_32_32_FLOAT, keeps its bits.)
         const DXGI_FORMAT format = depth ? DXGI_FORMAT_R32_FLOAT
+            : (destFormat == 36 || destFormat == 37) && WideColorTarget() ? kWideColorFormat
             : destFormat == 6 || (destFormat == 7 && bias == 0 && !no1010102) ? DXGI_FORMAT_R8G8B8A8_UNORM : DXGI_FORMAT_R16G16B16A16_FLOAT;
         // Bit 24 (copy swap): the destination stores red and blue exchanged; the
         // fetch swizzle swaps them back when the title samples it.
@@ -8846,6 +9037,8 @@ void RendererSaveCaches()
 {
     g_diskWriter.Flush();
     g_pipelineLibrary.MaybeSave(true);
+    if (!g_audit.entries.empty())
+        g_audit.WriteSummary();
 }
 
 void RendererSetShader(uint32_t type, const uint32_t* microcodeBE, uint32_t usedDwords, uint64_t hash)
@@ -8900,6 +9093,9 @@ struct SkipLog
 
 void TraceSkip(const char* why, uint32_t initiator)
 {
+    if (RenderAudit::On())
+        g_audit.Note("draws skipped", RenderAudit::Key("skip", { std::hash<std::string_view>{}(why) }),
+            [&] { return std::string("DRAW SKIPPED: ") + why; });
     if (g_sw_REGPU_LOG_SKIPS)
     {
         std::lock_guard lock(g_skipLog.mutex);
@@ -10568,6 +10764,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
         g_skippedPipeline++;
         return;
     }
+    if (RenderAudit::On())
+        g_audit.CheckDraw(vs.info, ps.info, edramMode);
     FrameResources& f = Frame();
 
     Section(3);
@@ -11211,9 +11409,11 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
         // found yet. Opt-in until then: REGPU_TEXTURE_GAMMA=1.
         // (=2: only textures decoded here, =3: only those on the GPU (resolves, native block formats).)
         static const int textureGamma = getenv("REGPU_TEXTURE_GAMMA") ? atoi(getenv("REGPU_TEXTURE_GAMMA")) : 0;
+        bool gammaApplied = false;
         if (textureGamma == 1 || (textureGamma == 2 && !onGpu) || (textureGamma == 3 && onGpu) || (textureGamma == 4 && native) ||
             (textureGamma == 5 && resolvedPtr))
         {
+            gammaApplied = true;
             uint32_t gammaMask = 0;
             for (uint32_t c = 0; c < 4; c++)
             {
@@ -11229,6 +11429,8 @@ void DrawImpl(uint32_t initiator, uint32_t dmaBase, uint32_t dmaSize)
                 gammaMask = 0;
             ti[0] |= gammaMask << 24;
         }
+        if (RenderAudit::On())
+            g_audit.CheckTexture(fetch, texture != nullptr, g_textureFailure, gammaApplied);
         if (!clamp && !oldClamp)
             ti[0] |= (clampX ? 1u << 18 : 0u) | (clampY ? 1u << 19 : 0u);
         // Anisotropy the fetch asks for (dword 3 bits 25-27: 2 = 2x .. 5 = 16x), for the linear wrapping

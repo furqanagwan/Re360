@@ -35,6 +35,27 @@ should read before changing `src/regpu/gpu`.
    re-check the others.
 4. Write the game's quirks down in the game's project, not here.
 
+## The render audit: what looks wrong, without a capture
+
+When something looks off but you can't point at a frame (a character's lighting,
+a material's colour), play with `REGPU_AUDIT=1` (live; `regpuctl switch
+REGPU_AUDIT 1`). XboxGPU then logs, once per kind as it is first met, every
+texture binding it only approximates, and writes a ranked summary,
+`regpu-audit.txt`, beside `regpu.log` every 30 s and at exit:
+
+| Line | Means |
+| --- | --- |
+| `NOT BOUND, the draw samples white` | a format, size or dimension XboxGPU can't decode; the texture reads as white |
+| `SIGNED channels read as unsigned` | the fetch marks channels signed (-1 to 1, usually normal maps); XboxGPU returns 0 to 1 |
+| `BIASED channels (x2-1) read as unsigned` | the same for biased channels |
+| `GAMMA channels read as linear` | gamma-encoded colour that Xenia converts to linear; XboxGPU does only with `REGPU_TEXTURE_GAMMA=1` |
+| `INTEGER number format read as normalised` | an integer texture read as 0-1 |
+
+Each entry names the format, a size and address, and the first pixel shader
+that reads it: the shader to look at next (`regpuctl hlsl HASH`, and `ps HASH
+tint` to see which surfaces it draws). Entries used most are what the game
+leans on; those are the ones to fix first.
+
 ## The debug loop
 
 Start the game with the debug server, then drive it without restarting:
