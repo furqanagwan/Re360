@@ -97,6 +97,17 @@ if(REGPU_XESS)
     install(FILES "${REGPU_XESS_DIR}/LICENSE.txt" DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME XeSS-LICENSE.txt)
 endif()
 
+# (An option turned off leaves no file list behind from an earlier configure.)
+if(NOT REGPU_FSR3)
+    unset(REGPU_FFX_FILES CACHE)
+endif()
+if(NOT REGPU_DLSS)
+    unset(REGPU_DLSS_FILES CACHE)
+endif()
+if(NOT REGPU_XESS)
+    unset(REGPU_XESS_FILES CACHE)
+endif()
+
 # gpu/bytecode/fsr1_cs.h is checked in, like src/graphics/shaders/bytecode.
 # Rebuild it after editing gpu/fsr1.hlsl: cmake --build <dir> --target regpu-fsr1-bytecode
 if(REGPU_FFX)
