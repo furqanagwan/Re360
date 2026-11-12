@@ -64,6 +64,16 @@ REXCVAR_DEFINE_STRING(render_resolution, "", "Display",
                       "(720p, 1080p, 1440p, 4k) or WxH; empty matches the window. Changes "
                       "apply while the game runs; the game's own video mode is unaffected");
 
+REXCVAR_DEFINE_STRING(
+    render_upscaler, "off", "Display",
+    "Upscaler the regpu plugin uses: off, fsr1, fsr3, fsr4 or dlss (one the GPU or "
+    "build can't run falls back to none). Changes apply while the game runs");
+
+REXCVAR_DEFINE_INT32(render_upscaler_quality, 1, "Display",
+                     "The upscaler's render scale: 0 native (anti-aliasing only), 1 quality, 2 "
+                     "balanced, 3 performance, 4 ultra performance")
+    .range(0, 4);
+
 REXCVAR_DEFINE_DOUBLE(video_mode_refresh_rate, 60.0, "Display",
                       "Guest video mode refresh rate in Hz")
     .range(24.0, 240.0)

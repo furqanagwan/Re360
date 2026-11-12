@@ -7,5 +7,7 @@ bool DlssInit(ID3D12Device*) { return false; }
 bool DlssEvaluate(ID3D12GraphicsCommandList*, const DlssSetup&, const DlssFrame&) { return false; }
 #endif
 #ifndef REGPU_FSR3
+bool Fsr3Available() { return false; }
 bool Fsr3Evaluate(ID3D12Device*, ID3D12GraphicsCommandList*, const DlssSetup&, const DlssFrame&, float) { return false; }
+bool Fsr4Evaluate(ID3D12Device*, ID3D12GraphicsCommandList*, const DlssSetup&, const DlssFrame&, float) { return false; }
 #endif

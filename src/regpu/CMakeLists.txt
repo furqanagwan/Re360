@@ -55,6 +55,12 @@ if(REGPU_FSR3)
     target_compile_definitions(regpu PRIVATE REGPU_FSR3=1)
     target_include_directories(regpu PRIVATE "${REGPU_FFX}/api/include" "${REGPU_FFX}/upscalers/include")
     target_link_libraries(regpu PUBLIC "${REGPU_FFX}/signedbin/amd_fidelityfx_loader_dx12.lib")
+    # The signed runtime a title ships beside its executable (staged by rexglue_setup_target).
+    set(REGPU_FFX_FILES
+        "${REGPU_FFX}/signedbin/amd_fidelityfx_loader_dx12.dll"
+        "${REGPU_FFX}/signedbin/amd_fidelityfx_upscaler_dx12.dll"
+        CACHE INTERNAL "The FidelityFX DLLs a regpu title with FSR 3/4 ships")
+    install(FILES ${REGPU_FFX_FILES} DESTINATION ${CMAKE_INSTALL_BINDIR})
 endif()
 if(REGPU_DLSS)
     if(NOT EXISTS "${REGPU_DLSS_DIR}/include")
@@ -77,7 +83,7 @@ if(REGPU_FFX)
             py -3 -I "${REXGLUE_ROOT}/tools/regpu/embed_hlsl.py"
             "${CMAKE_CURRENT_SOURCE_DIR}/gpu/fsr1.hlsl"
             "${CMAKE_CURRENT_SOURCE_DIR}/gpu/bytecode/fsr1_cs.h"
-            EasuMain,RcasMain,DepthCopyMain,GammaMain,EnhanceMain
+            EasuMain,RcasMain,DepthCopyMain,GammaMain,EnhanceMain,ViewMain
             "${REGPU_FFX}/api/internal/gpu" "${REGPU_FFX}/upscalers/fsr3/include/gpu/fsr1"
         VERBATIM)
 endif()
@@ -91,6 +97,12 @@ set_target_properties(rexgpu-regpu PROPERTIES
 )
 # Everything PRIVATE: the plugin has no consumers (see src/graphics/CMakeLists.txt).
 target_link_libraries(rexgpu-regpu PRIVATE rexruntime regpu)
+if(REGPU_FSR3)
+    # Loaded at the first FSR 3/4 frame (Fsr3Available checks first), so the plugin still loads,
+    # and plays without FSR, where the FidelityFX DLLs are missing.
+    target_link_options(rexgpu-regpu PRIVATE "LINKER:/DELAYLOAD:amd_fidelityfx_loader_dx12.dll")
+    target_link_libraries(rexgpu-regpu PRIVATE delayimp)
+endif()
 
 if(PROJECT_IS_TOP_LEVEL)
     # Build check: ReGPU linked with nothing else, so a symbol it still expects
