@@ -28,6 +28,7 @@ struct TranslatedShader
     std::string hlsl;
     uint32_t usedTextureSlots = 0;  // bit per fetch slot (pixel shaders)
     bool memExport = false;         // a vertex shader writing eA/eM (memory export): not translated, its writes are lost
+    uint32_t colorExports = 0;      // pixel shaders: bit k when colour output k (oCk) is written (only 0 is drawn)
     std::vector<uint32_t> vertexFetchConstants; // vertex shaders
     std::vector<std::array<uint32_t, 4>> vertexFetchLayout; // vfl[k] for each vertex fetch (see hlsl.cpp)
     // Vertex shaders whose vertex fetch indices are simple arithmetic on the vertex index and constants

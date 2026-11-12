@@ -35,6 +35,36 @@ should read before changing `src/regpu/gpu`.
    re-check the others.
 4. Write the game's quirks down in the game's project, not here.
 
+## The render audit: what looks wrong, without a capture
+
+When something looks off but you can't point at a frame (a character's lighting,
+a material's colour, a missing shadow), read `regpu-audit.txt`. XboxGPU always
+keeps it (`REGPU_NO_AUDIT=1` turns it off): every place it draws something
+other than what the title asked the console's GPU for is logged once as it is
+first met (`audit: AREA: ...` in `regpu.log`), counted, and written ranked by
+use beside `regpu.log` every 30 s and at exit. It keys on Xenos state, so it
+works for any title.
+
+| Area | Line | Means |
+| --- | --- | --- |
+| textures | `NOT BOUND, the draw samples white` | a format, size or dimension XboxGPU can't decode, or an upload that failed; the texture reads as white |
+| textures | `SIGNED channels read as unsigned` | the fetch marks channels signed (-1 to 1, usually normal maps); XboxGPU returns 0 to 1 |
+| textures | `BIASED channels (x2-1) read as unsigned` | the same for biased channels |
+| textures | `GAMMA channels read as linear` | gamma-encoded colour that Xenia converts to linear; XboxGPU does only with `REGPU_TEXTURE_GAMMA=1` |
+| textures | `INTEGER number format read as normalised` | an integer texture read as 0-1 |
+| render targets | `MULTIPLE RENDER TARGETS` | the pixel shader writes colour outputs 1-3; only output 0 is drawn |
+| render targets | `GAMMA render target ... kept linear` | a `k_8_8_8_8_GAMMA` target without `REGPU_RESOLVE_GAMMA=1` |
+| render targets | `k_32_FLOAT ... kept as 16-bit float` | only with `REGPU_NO_FLOAT32_TARGETS=1`; otherwise these keep 32 bits |
+| shaders | `MEMORY EXPORT (eA/eM) not translated` | a vertex shader's writes to memory are lost |
+| draws skipped | `DRAW SKIPPED: reason` | every dropped draw, by reason (`pipeline`: still building; `ring full`: the frame outgrew the upload ring; `empty scissor`: nothing to draw) |
+| blending | `BLEND FACTOR n has no host form` | drawn as ONE |
+
+Each entry names the first vertex and pixel shader that met it and how many
+pixel shaders did: the shaders to look at next (`regpuctl hlsl HASH`, and `ps
+HASH tint` to see which surfaces they draw). Entries used most are what the
+game leans on; those are the ones to fix first. A new approximation in the
+renderer reports itself with one `g_audit.Note(area, key, describe)` call.
+
 ## The debug loop
 
 Start the game with the debug server, then drive it without restarting:

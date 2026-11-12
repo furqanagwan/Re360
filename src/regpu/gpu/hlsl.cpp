@@ -1591,7 +1591,10 @@ TranslatedShader TranslateShader(const Shader& shader)
             h.replace(at, declArray.size(), "float4 oC0 = 0, oC1 = 0, oC2 = 0, oC3 = 0;");
             for (char k = '0'; k <= '3'; k++)
                 for (size_t p = 0; (p = h.find(std::string("oC[") + k + "]", p)) != std::string::npos;)
+                {
                     h.replace(p, 5, std::string("oC") + k);
+                    result.colorExports |= 1u << (k - '0'); // (the render audit reports outputs 1-3 lost)
+                }
             // The return keeps its form: debug edits and the motion-vector variant patch "return oC[0];"
             // (a one-element array written once and read once has nothing to reorder).
             const std::string ret = "    return oC0;\n}\n";
