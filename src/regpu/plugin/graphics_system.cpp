@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <filesystem>
 #include <mutex>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include <rex/cvar.h>
@@ -169,6 +171,21 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
 
   void StartBeforeShadersPrepared() override { regpu::StartBeforePrepared(); }
 
+  std::vector<std::string> AvailableUpscalers() const override {
+    using Upscaler = regpu::Config::Upscaler;
+    static constexpr std::pair<Upscaler, const char*> kNames[] = {
+        {Upscaler::Off, "off"},   {Upscaler::Fsr1, "fsr1"}, {Upscaler::Fsr3, "fsr3"},
+        {Upscaler::Fsr4, "fsr4"}, {Upscaler::Dlss, "dlss"}, {Upscaler::Xess, "xess"}};
+    const uint32_t available = regpu::AvailableUpscalers();
+    std::vector<std::string> names;
+    for (const auto& [upscaler, name] : kNames) {
+      if (available & (1u << uint32_t(upscaler))) {
+        names.emplace_back(name);
+      }
+    }
+    return names;
+  }
+
   void FlushCaches() override {
     if (active_system == this) {
       regpu::SaveCaches();
@@ -271,6 +288,7 @@ class ReGpuGraphicsSystem final : public system::IGraphicsSystem {
                               : name == "fsr3" ? Upscaler::Fsr3
                               : name == "fsr4" ? Upscaler::Fsr4
                               : name == "dlss" ? Upscaler::Dlss
+                              : name == "xess" ? Upscaler::Xess
                                                : Upscaler::Off;
     const auto quality = uint32_t(std::clamp(cvar::Query<int32_t>("render_upscaler_quality"), 0, 4));
     regpu::Config& config = regpu::GetConfig();

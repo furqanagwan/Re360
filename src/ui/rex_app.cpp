@@ -1485,6 +1485,10 @@ void ReXApp::ToggleGuide() {
   host.restart_title = [this] { restart_on_exit_ = true; };
   host.display_scale = DisplayScale(DisplayHeight(window_.get()));
   // (Resolved again: config_ has been moved into the runtime by now.)
+  host.upscalers = [this] {
+    auto* graphics = runtime_ ? runtime_->graphics_system() : nullptr;
+    return graphics ? graphics->AvailableUpscalers() : std::vector<std::string>{};
+  };
   host.renderer = rex::system::ResolveGpuPluginName(
       REXCVAR_GET(gpu_plugin), rex::system::IsGpuPluginStaged(rex::system::kDefaultGpuPlugin));
   host.audio_outputs = [] { return rex::audio::ListAudioOutputs(); };

@@ -6,6 +6,8 @@
 
 option(REGPU_FSR3 "ReGPU: AMD FSR 3 upscaling (needs REGPU_FFX with the FidelityFX SDK's signed DLLs)" OFF)
 option(REGPU_DLSS "ReGPU: NVIDIA DLSS (needs REGPU_DLSS_DIR)" OFF)
+option(REGPU_XESS "ReGPU: Intel XeSS (needs REGPU_XESS_DIR)" OFF)
+set(REGPU_XESS_DIR "" CACHE PATH "Intel XeSS SDK folder (with REGPU_XESS)")
 set(REGPU_FFX "" CACHE PATH
     "AMD FidelityFX SDK's Kits/FidelityFX folder. Only needed for REGPU_FSR3 or to rebuild gpu/bytecode/fsr1_cs.h")
 set(REGPU_DLSS_DIR "" CACHE PATH "NVIDIA DLSS SDK folder (with REGPU_DLSS)")
@@ -34,6 +36,9 @@ if(REGPU_FSR3)
 endif()
 if(REGPU_DLSS)
     list(APPEND REGPU_SOURCES gpu/dlss.cpp)
+endif()
+if(REGPU_XESS)
+    list(APPEND REGPU_SOURCES gpu/xess.cpp)
 endif()
 
 add_library(regpu STATIC ${REGPU_SOURCES})
@@ -68,7 +73,28 @@ if(REGPU_DLSS)
     endif()
     target_compile_definitions(regpu PRIVATE REGPU_DLSS=1)
     target_include_directories(regpu PRIVATE "${REGPU_DLSS_DIR}/include")
-    target_link_libraries(regpu PUBLIC "${REGPU_DLSS_DIR}/lib/Windows_x86_64/x64/nvsdk_ngx_s.lib")
+    # (_d: the DLL C runtime Re360 builds with; _s is the static one.)
+    target_link_libraries(regpu PUBLIC "${REGPU_DLSS_DIR}/lib/Windows_x86_64/x64/nvsdk_ngx_d.lib")
+    # NGX loads the DLSS runtime from beside the executable at its first use (DlssInit), so without
+    # it DLSS is just unavailable. Its licence (the SDK's LICENSE.txt) asks for NVIDIA's marks on
+    # the splash screen and credits of a game that ships it.
+    set(REGPU_DLSS_FILES "${REGPU_DLSS_DIR}/lib/Windows_x86_64/rel/nvngx_dlss.dll"
+        CACHE INTERNAL "The DLSS runtime a regpu title with DLSS ships")
+    install(FILES ${REGPU_DLSS_FILES} DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
+
+if(REGPU_XESS)
+    if(NOT EXISTS "${REGPU_XESS_DIR}/inc/xess/xess_d3d12.h")
+        message(FATAL_ERROR "REGPU_XESS needs REGPU_XESS_DIR set to the Intel XeSS SDK folder")
+    endif()
+    target_compile_definitions(regpu PRIVATE REGPU_XESS=1)
+    target_include_directories(regpu PRIVATE "${REGPU_XESS_DIR}/inc")
+    target_link_libraries(regpu PUBLIC "${REGPU_XESS_DIR}/lib/libxess.lib")
+    # libxess.dll is redistributed unmodified with its licence (Intel Simplified Software License),
+    # which must ship beside it.
+    set(REGPU_XESS_FILES "${REGPU_XESS_DIR}/bin/libxess.dll" CACHE INTERNAL "The XeSS runtime a regpu title ships")
+    install(FILES ${REGPU_XESS_FILES} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    install(FILES "${REGPU_XESS_DIR}/LICENSE.txt" DESTINATION ${CMAKE_INSTALL_BINDIR} RENAME XeSS-LICENSE.txt)
 endif()
 
 # gpu/bytecode/fsr1_cs.h is checked in, like src/graphics/shaders/bytecode.
@@ -101,6 +127,11 @@ if(REGPU_FSR3)
     # Loaded at the first FSR 3/4 frame (Fsr3Available checks first), so the plugin still loads,
     # and plays without FSR, where the FidelityFX DLLs are missing.
     target_link_options(rexgpu-regpu PRIVATE "LINKER:/DELAYLOAD:amd_fidelityfx_loader_dx12.dll")
+    target_link_libraries(rexgpu-regpu PRIVATE delayimp)
+endif()
+if(REGPU_XESS)
+    # The same for XeSS (XessInit loads libxess.dll first).
+    target_link_options(rexgpu-regpu PRIVATE "LINKER:/DELAYLOAD:libxess.dll")
     target_link_libraries(rexgpu-regpu PRIVATE delayimp)
 endif()
 

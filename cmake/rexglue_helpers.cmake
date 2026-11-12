@@ -210,13 +210,23 @@ function(_rexglue_stage_regpu_dxil target_name)
     endif()
 endfunction()
 
-# The FidelityFX DLLs (FSR 3/4) go beside the executable when the SDK was built with them
-# (REGPU_FSR3): from the build tree, or from an installed SDK's bin folder.
+# The upscalers' runtime DLLs go beside the executable when the SDK was built with them:
+# FidelityFX (FSR 3/4, REGPU_FSR3), DLSS (REGPU_DLSS) and XeSS (REGPU_XESS, with its licence),
+# from the build tree or from an installed SDK's bin folder.
 function(_rexglue_stage_regpu_ffx target_name)
-    if(REGPU_FFX_FILES)
-        set(_files ${REGPU_FFX_FILES})
+    if(REGPU_FFX_FILES OR REGPU_DLSS_FILES OR REGPU_XESS_FILES)
+        set(_files ${REGPU_FFX_FILES} ${REGPU_DLSS_FILES} ${REGPU_XESS_FILES})
+        if(REGPU_XESS_FILES)
+            add_custom_command(TARGET ${target_name} POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different "${REGPU_XESS_DIR}/LICENSE.txt"
+                    "$<TARGET_FILE_DIR:${target_name}>/XeSS-LICENSE.txt"
+                VERBATIM
+            )
+        endif()
     else()
-        file(GLOB _files "${REXGLUE_BIN_DIR}/amd_fidelityfx_*_dx12.dll")
+        file(GLOB _files "${REXGLUE_BIN_DIR}/amd_fidelityfx_*_dx12.dll"
+            "${REXGLUE_BIN_DIR}/nvngx_dlss.dll" "${REXGLUE_BIN_DIR}/libxess.dll"
+            "${REXGLUE_BIN_DIR}/XeSS-LICENSE.txt")
     endif()
     if(NOT _files)
         return()

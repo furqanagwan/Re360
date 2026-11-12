@@ -56,7 +56,8 @@ bool IsMlVersion(const char* name)
 
 // FSR 4 is the ML upscaler. The FidelityFX API lists it on RDNA 2/3 too (a slower fallback path in newer
 // SDKs), where in the FM4 port it worked but hung the device and crashed inside amdxc64.dll in some long
-// runs. So it is opt-in: Config::Upscaler::Fsr4 runs FSR 3 unless REGPU_FSR4=1 is set. The adapter is
+// runs. So it is opt-in. In Re360 choosing FSR 4 (the guide's Upscaler page, render_upscaler=fsr4) is
+// the opt-in; REGPU_FSR4=0 runs FSR 3 instead (upstream: off unless REGPU_FSR4=1). The adapter is
 // logged either way.
 bool Fsr4Enabled(ID3D12Device* device)
 {
@@ -64,8 +65,8 @@ bool Fsr4Enabled(ID3D12Device* device)
     if (cached >= 0)
         return cached != 0;
     const char* v = std::getenv("REGPU_FSR4");
-    const bool on = v && *v == '1';
-    const char* state = on ? "enabled (REGPU_FSR4=1)" : "off by default, using FSR 3 (REGPU_FSR4=1 to try it)";
+    const bool on = !(v && *v == '0');
+    const char* state = on ? "chosen" : "off (REGPU_FSR4=0), using FSR 3";
     Microsoft::WRL::ComPtr<IDXGIFactory4> factory;
     Microsoft::WRL::ComPtr<IDXGIAdapter1> adapter;
     if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory))) && SUCCEEDED(factory->EnumAdapterByLuid(device->GetAdapterLuid(), IID_PPV_ARGS(&adapter))))
@@ -124,6 +125,37 @@ bool PickVersion(ID3D12Device* device, bool ml, uint64_t& id, bool& found)
 }
 
 bool FsrEvaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const DlssSetup& setup, const DlssFrame& frame, float sharpness, bool ml);
+}
+
+bool Fsr4Supported(ID3D12Device* device)
+{
+    if (!Fsr3Available())
+        return false;
+    uint64_t count = 0;
+    ffxQueryDescGetVersions q{};
+    q.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
+    q.createDescType = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+    q.device = device;
+    q.outputCount = &count;
+    try
+    {
+        if (ffxQuery(nullptr, &q.header) != FFX_API_RETURN_OK || count == 0)
+            return false;
+        std::vector<uint64_t> ids(count);
+        std::vector<const char*> names(count);
+        q.versionIds = ids.data();
+        q.versionNames = names.data();
+        if (ffxQuery(nullptr, &q.header) != FFX_API_RETURN_OK)
+            return false;
+        for (const char* name : names)
+            if (IsMlVersion(name))
+                return true;
+    }
+    catch (...)
+    {
+        Log("fsr: listing the upscaler versions threw");
+    }
+    return false;
 }
 
 bool Fsr3Available()

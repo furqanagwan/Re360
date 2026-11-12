@@ -34,6 +34,8 @@ REXCVAR_DECLARE(int32_t, monitor);
 REXCVAR_DECLARE(bool, fullscreen);
 REXCVAR_DECLARE(bool, fullscreen_exclusive);
 REXCVAR_DECLARE(std::string, render_resolution);
+REXCVAR_DECLARE(std::string, render_upscaler);
+REXCVAR_DECLARE(int32_t, render_upscaler_quality);
 
 namespace rex::ui::guide {
 namespace {
@@ -260,6 +262,10 @@ void XboxGuide::OpenPreferences() {
   if (host_.renderer == "regpu" || !assets_->has_xbox_settings) {
     AddEntry(scene, "btnController", "btnController", "btnResolution", "Resolution");
   }
+  if (host_.renderer == "regpu" && host_.upscalers) {
+    AddEntry(scene, "btnController", "btnResolution", "btnUpscaler", "Upscaler");
+    AddEntry(scene, "btnController", "btnUpscaler", "btnUpscalerQuality", "Upscaler Quality");
+  }
   pages_.back().on_select = [this](xui::Element* control) {
     const std::string_view id = control->id();
     if (id == "btnNotifications") {
@@ -274,6 +280,10 @@ void XboxGuide::OpenPreferences() {
       OpenDisplayMode();
     } else if (id == "btnController") {
       OpenVibration();
+    } else if (id == "btnUpscaler") {
+      OpenUpscaler();
+    } else if (id == "btnUpscalerQuality") {
+      OpenUpscalerQuality();
     } else if (id == "btnResolution") {
       if (host_.renderer == "regpu") {
         OpenRenderResolution();
@@ -603,6 +613,11 @@ void XboxGuide::OpenChoices(std::string title, std::string heading,
   if (rows.empty()) {
     return;
   }
+  for (size_t i = 0; i < rows.size(); ++i) {
+    if (!choices[i].available) {
+      rows[i]->Set("Enabled", xui::Value{false});
+    }
+  }
   xui::Element* group = rows.front()->parent();
   current = std::min(current, rows.size() - 1);
   CheckOnly(group, rows[current]);
@@ -612,9 +627,9 @@ void XboxGuide::OpenChoices(std::string title, std::string heading,
       SetText(scene, "LabelSubHeader1", choices[size_t(row - rows.begin())].details);
     }
   };
-  pages_.back().on_select = [this, group, rows, chosen](xui::Element* control) {
+  pages_.back().on_select = [this, group, rows, choices, chosen](xui::Element* control) {
     const auto row = std::ranges::find(rows, control);
-    if (row == rows.end()) {
+    if (row == rows.end() || !choices[size_t(row - rows.begin())].available) {
       return;
     }
     chosen(size_t(row - rows.begin()));
@@ -696,6 +711,89 @@ void XboxGuide::OpenRenderResolution() {
                 values[choice].empty() ? "matching the display" : values[choice]);
     rex::cvar::SetFlagByName("render_resolution", values[choice]);
   });
+}
+
+void XboxGuide::OpenUpscaler() {
+  const std::vector<std::string> available =
+      host_.upscalers ? host_.upscalers() : std::vector<std::string>{};
+  auto can_run = [&](const std::string& name) {
+    return name == "off" || std::ranges::find(available, name) != available.end();
+  };
+  // render_upscaler value, row text, what it does, why it is greyed out.
+  using Upscaler = std::tuple<const char*, const char*, const char*, const char*>;
+  static constexpr Upscaler kUpscalers[] = {
+      {"off", "Off",
+       "Draws at the render resolution with no upscaling. Choose this with Match Display for the "
+       "sharpest picture on a fast graphics card.",
+       ""},
+      {"fsr1", "AMD FSR 1",
+       "Draws at a lower resolution (Upscaler Quality) and sharpens it up to your screen. Works on "
+       "any graphics card and costs the least.",
+       ""},
+      {"fsr3", "AMD FSR 3",
+       "Draws at a lower resolution and rebuilds the detail from earlier frames: close to native "
+       "sharpness for much less work. Works on any graphics card.",
+       "Not available: the AMD FidelityFX files are missing from the game folder."},
+      {"fsr4", "AMD FSR 4",
+       "AMD's machine-learning upscaler: the sharpest FSR, for AMD Radeon RX 9000 series "
+       "graphics cards.",
+       "Not available: FSR 4 needs an AMD Radeon RX 9000 series (or newer) graphics card."},
+      {"dlss", "NVIDIA DLSS",
+       "NVIDIA's AI upscaler: draws at a lower resolution and rebuilds a sharp, stable picture. "
+       "For NVIDIA GeForce RTX graphics cards.",
+       "Not available: DLSS needs an NVIDIA GeForce RTX graphics card and this game's DLSS "
+       "files."},
+      {"xess", "Intel XeSS",
+       "Intel's AI upscaler: fastest and sharpest on Intel Arc graphics cards, and also works on "
+       "most recent NVIDIA and AMD cards.",
+       "Not available: this graphics card or driver can't run XeSS, or its files are missing from "
+       "the game folder."},
+  };
+  std::vector<Choice> choices;
+  std::vector<std::string> values;
+  size_t current = 0;
+  for (const auto& [value, text, details, unavailable] : kUpscalers) {
+    const bool runs = can_run(value);
+    if (value == REXCVAR_GET(render_upscaler)) {
+      current = choices.size();
+    }
+    choices.push_back(
+        {text, runs ? details : fmt::format("{}\r\n\r\n{}", details, unavailable), runs});
+    values.emplace_back(value);
+  }
+  OpenChoices("Upscaler", "Upscaler", choices, current, [values](size_t choice) {
+    REXLOG_INFO("Xbox guide: upscaler {}", values[choice]);
+    rex::cvar::SetFlagByName("render_upscaler", values[choice]);
+  });
+}
+
+void XboxGuide::OpenUpscalerQuality() {
+  // ReGPU's scales (Config::SceneScale): the share of the output resolution drawn per axis.
+  static constexpr std::pair<const char*, const char*> kQualities[] = {
+      {"Native (Anti-Aliasing Only)",
+       "Draws at the full resolution and uses the upscaler only to smooth edges. The sharpest, "
+       "and the slowest."},
+      {"Quality",
+       "Draws at 67% of the resolution in each direction. Close to native; a good balance."},
+      {"Balanced", "Draws at 59% of the resolution: faster, slightly softer."},
+      {"Performance", "Draws at 50% of the resolution: for slower graphics cards or 4K screens."},
+      {"Ultra Performance",
+       "Draws at 33% of the resolution: the fastest, and noticeably softer. Best kept for 4K "
+       "screens."},
+  };
+  std::vector<Choice> choices;
+  for (const auto& [text, details] : kQualities) {
+    choices.push_back(
+        {text,
+         REXCVAR_GET(render_upscaler) == "off"
+             ? fmt::format("{}\r\n\r\nUsed when an upscaler is chosen (Upscaler is Off).", details)
+             : std::string(details)});
+  }
+  OpenChoices("Upscaler Quality", "Render Scale", choices,
+              size_t(std::clamp(REXCVAR_GET(render_upscaler_quality), 0, 4)), [](size_t choice) {
+                REXLOG_INFO("Xbox guide: upscaler quality {}", choice);
+                rex::cvar::SetFlagByName("render_upscaler_quality", std::to_string(choice));
+              });
 }
 
 void XboxGuide::OpenXboxSettings() {

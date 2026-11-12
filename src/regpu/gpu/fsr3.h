@@ -7,5 +7,7 @@ bool Fsr3Evaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const D
 // Whether FSR 3/4 can run: built with the FidelityFX SDK and its loader DLL beside the game (the
 // plugin delay-loads it, so a missing DLL only turns FSR off).
 bool Fsr3Available();
+// Whether the FidelityFX SDK lists its ML upscaler (FSR 4) for this GPU.
+bool Fsr4Supported(ID3D12Device* device);
 // The same with the FidelityFX ML upscaler (FSR 4), when REGPU_FSR4=1 and this GPU lists it; otherwise FSR 3.
 bool Fsr4Evaluate(ID3D12Device* device, ID3D12GraphicsCommandList* list, const DlssSetup& setup, const DlssFrame& frame, float sharpness);

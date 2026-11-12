@@ -31,7 +31,7 @@ struct Config
     // Fsr4: the FidelityFX ML upscaler where the GPU lists it, and only with REGPU_FSR4=1 (it hung some
     // RDNA 2/3 devices in the FM4 port); FSR 3 otherwise. The temporal ones (Fsr3, Fsr4, Dlss) run only on
     // frames with a 3D scene of their own, and need MSAA off: with one chosen the scene draws at 1x.
-    enum class Upscaler : uint32_t { Off, Fsr1, Fsr3, Dlss, Fsr4 };
+    enum class Upscaler : uint32_t { Off, Fsr1, Fsr3, Dlss, Fsr4, Xess };
     Upscaler upscaler = Upscaler::Off;
     uint32_t quality = 1;   // 0 native (anti-aliasing only), 1 quality, 2 balanced, 3 performance, 4 ultra performance
     float sharpness = 0.5f; // 0-1
@@ -209,6 +209,10 @@ struct PreparationStatus
     double secondsLeft = -1;      // this step's estimate; below 0 when not known yet
 };
 bool ShaderPreparationStatus(PreparationStatus& status);
+// The upscalers this PC can run, as bits 1 << Config::Upscaler: Off and FSR 1 always; FSR 3 with the
+// FidelityFX DLLs; FSR 4 where the FidelityFX SDK lists its ML upscaler for this GPU; DLSS on an
+// NVIDIA RTX GPU in a build with the DLSS SDK; XeSS on a GPU it supports, with libxess.dll. Known once the renderer has started (0 before).
+uint32_t AvailableUpscalers();
 // The threads building pipelines, 1 up to the hardware's; 0 restores the default (all but two).
 // Takes effect straight away, preparation or not.
 void SetPipelineThreads(uint32_t threads);

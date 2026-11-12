@@ -39,6 +39,7 @@
 #include "gpu/dxc.h"
 #include "gpu/dlss.h"
 #include "gpu/fsr3.h"
+#include "gpu/xess.h"
 #include "gpu/recorded_list.h"
 #include "gpu/bytecode/fsr1_cs.h"
 #include <DirectXPackedVector.h>
@@ -1616,7 +1617,8 @@ bool PhysicalHeapAliasesGuest(ID3D12Device* d, ID3D12Resource* physical)
 // DLSS, FSR 3 or FSR 4: the scene is reconstructed over several frames (motion vectors, jitter).
 bool TemporalUpscalerChosen(const Settings& st)
 {
-    return st.upscaler == Settings::Upscaler::Dlss || st.upscaler == Settings::Upscaler::Fsr3 || st.upscaler == Settings::Upscaler::Fsr4;
+    return st.upscaler == Settings::Upscaler::Dlss || st.upscaler == Settings::Upscaler::Fsr3 || st.upscaler == Settings::Upscaler::Fsr4 ||
+        st.upscaler == Settings::Upscaler::Xess;
 }
 
 // The highest sample count up to `want` the device supports for the colour and depth formats (1 when none).
@@ -1958,6 +1960,8 @@ bool AnisoFromFetch()
     return fromFetch;
 }
 
+std::atomic<uint32_t> g_availableUpscalers{ 0 }; // regpu::AvailableUpscalers
+
 void Init()
 {
     g_r.device = RenderDevice();
@@ -2167,6 +2171,22 @@ void Init()
         kWidth = st.guestWidth, kHeight = st.guestHeight;
     g_r.ok = true;
     Log("renderer: D3D12 renderer ready");
+    // What the upscaler settings can offer on this PC (regpu::AvailableUpscalers), checked here once,
+    // on the renderer's thread: DlssInit starts NGX on the device.
+    using Upscaler = regpu::Config::Upscaler;
+    uint32_t available = 1u << uint32_t(Upscaler::Off) | 1u << uint32_t(Upscaler::Fsr1);
+    if (Fsr3Available())
+        available |= 1u << uint32_t(Upscaler::Fsr3);
+    if (Fsr4Supported(d))
+        available |= 1u << uint32_t(Upscaler::Fsr4);
+    if (DlssInit(d))
+        available |= 1u << uint32_t(Upscaler::Dlss);
+    if (XessInit(d))
+        available |= 1u << uint32_t(Upscaler::Xess);
+    g_availableUpscalers = available;
+    Log("renderer: upscalers available:%s%s%s%s", available & (1u << uint32_t(Upscaler::Fsr3)) ? " FSR 3" : "",
+        available & (1u << uint32_t(Upscaler::Fsr4)) ? " FSR 4" : "", available & (1u << uint32_t(Upscaler::Dlss)) ? " DLSS" : "",
+        available & (1u << uint32_t(Upscaler::Xess)) ? " XeSS" : "");
 }
 
 double g_gpuWaitSeconds = 0; // CP thread blocked on the host GPU (frame resources)
@@ -7066,9 +7086,11 @@ bool EvaluateTemporal(uint32_t base, bool dlss)
     barrier(g_upscale.reactive.Get(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     barrier(in.output, read, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     // NGX records into the real command list (after everything recorded so far).
-    const bool ok = dlss ? DlssEvaluate(C().list->Real(), setup, in)
-                         : GetSettings().upscaler == Settings::Upscaler::Fsr4 ? Fsr4Evaluate(g_r.device, C().list->Real(), setup, in, GetSettings().sharpness)
-                                                                             : Fsr3Evaluate(g_r.device, C().list->Real(), setup, in, GetSettings().sharpness);
+    const Settings::Upscaler chosen = GetSettings().upscaler;
+    const bool ok = dlss                                  ? DlssEvaluate(C().list->Real(), setup, in)
+                    : chosen == Settings::Upscaler::Xess ? XessEvaluate(g_r.device, C().list->Real(), setup, in)
+                    : chosen == Settings::Upscaler::Fsr4 ? Fsr4Evaluate(g_r.device, C().list->Real(), setup, in, GetSettings().sharpness)
+                                                         : Fsr3Evaluate(g_r.device, C().list->Real(), setup, in, GetSettings().sharpness);
     if (ok)
         g_tstat.evaluated++;
     g_upscale.viewValid = ok; // (REGPU_VIEW_MOTION / _DEPTH / _REACTIVE show them at the end of the frame)
@@ -11911,9 +11933,9 @@ void BenchmarkWriteReport(const char* path)
         }
     }
     const Settings& st = GetSettings();
-    static const char* upscalers[] = { "off", "FSR 1", "FSR 3", "DLSS", "FSR 4" };
+    static const char* upscalers[] = { "off", "FSR 1", "FSR 3", "DLSS", "FSR 4", "XeSS" };
     static const char* qualities[] = { "native (AA)", "quality", "balanced", "performance", "ultra performance" };
-    std::string upscaler = upscalers[std::min<uint32_t>(uint32_t(st.upscaler), 4)];
+    std::string upscaler = upscalers[std::min<uint32_t>(uint32_t(st.upscaler), 5)];
     if (st.upscaler != Settings::Upscaler::Off)
         upscaler += std::string(", ") + qualities[std::min<uint32_t>(st.quality, 4)];
 
@@ -12487,6 +12509,8 @@ void regpu::PrepareShaders()
         g_preparing = false;
     }).detach();
 }
+
+uint32_t regpu::AvailableUpscalers() { return g_availableUpscalers.load(); }
 
 bool regpu::ShaderPreparation(uint32_t& done, uint32_t& total)
 {
