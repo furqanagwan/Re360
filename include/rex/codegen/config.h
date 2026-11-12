@@ -65,6 +65,7 @@ struct PatchRegisterSet {
   uint32_t reg = 0;
   uint64_t value = 0;
   std::optional<uint32_t> lr;
+  std::vector<PatchNonzero> when_nonzero;  // all must be non-zero for the set to apply
 };
 
 struct CodePatch {

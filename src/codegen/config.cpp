@@ -265,9 +265,46 @@ void ApplyToml(const toml::table& toml, RecompilerConfig& cfg, const std::string
                 "optional lr";
             continue;
           }
+          // when_nonzero = ["r26", "r26+316"]: each a register, or the word at register +
+          // offset; the set applies only when all are non-zero.
+          std::vector<PatchNonzero> when_nonzero;
+          bool conditions_ok = true;
+          if (auto* conditions = (*st)["when_nonzero"].as_array()) {
+            for (auto& c : *conditions) {
+              auto text = c.value<std::string>();
+              PatchNonzero condition;
+              size_t plus = text ? text->find('+') : std::string::npos;
+              const std::string reg_text = text ? text->substr(0, plus) : std::string();
+              if (reg_text.size() < 2 || reg_text[0] != 'r' ||
+                  reg_text.find_first_not_of("0123456789", 1) != std::string::npos ||
+                  std::strtoul(reg_text.c_str() + 1, nullptr, 10) > 31) {
+                conditions_ok = false;
+                break;
+              }
+              condition.reg = uint32_t(std::strtoul(reg_text.c_str() + 1, nullptr, 10));
+              if (plus != std::string::npos) {
+                const std::string offset_text = text->substr(plus + 1);
+                char* end = nullptr;
+                const long long offset = std::strtoll(offset_text.c_str(), &end, 0);
+                if (offset_text.empty() || *end || offset < -32768 || offset > 32767) {
+                  conditions_ok = false;
+                  break;
+                }
+                condition.offset = int32_t(offset);
+              }
+              when_nonzero.push_back(condition);
+            }
+          }
+          if (!conditions_ok) {
+            parsed.error =
+                "when_nonzero entries are registers (\"r26\") or a register and an offset "
+                "(\"r26+316\")";
+            continue;
+          }
           parsed.sets.push_back({static_cast<uint32_t>(*address), reg_index,
                                  static_cast<uint64_t>(*value),
-                                 lr ? std::optional<uint32_t>(uint32_t(*lr)) : std::nullopt});
+                                 lr ? std::optional<uint32_t>(uint32_t(*lr)) : std::nullopt,
+                                 std::move(when_nonzero)});
         }
       }
       auto switchable = (*table)["switchable"].value<bool>();

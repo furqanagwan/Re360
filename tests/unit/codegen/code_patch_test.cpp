@@ -402,3 +402,55 @@ value = 1
   far.sets[0].address = kBase + 0x1000;
   CHECK_FALSE(PrepareSwitchablePatches(binary, {far}));
 }
+
+TEST_CASE("Switchable sets can require registers and guest words to be non-zero",
+          "[codegen][patch]") {
+  auto cfg = Parse(R"(
+file_path = "default.xex"
+[[patch]]
+name = "One-Hit Kills"
+switchable = true
+[[patch.set]]
+address = 0x82000004
+register = "r11"
+value = 0
+lr = 0x82000000
+when_nonzero = ["r26", "r26+316", "r3+-8"]
+[[patch]]
+name = "Bad condition"
+switchable = true
+[[patch.set]]
+address = 0x82000004
+register = "r11"
+value = 0
+when_nonzero = ["f1"]
+[[patch]]
+name = "Bad offset"
+switchable = true
+[[patch.set]]
+address = 0x82000004
+register = "r11"
+value = 0
+when_nonzero = ["r26+x", "r3-8"]
+)");
+  const CodePatch& kills = Named(cfg, "One-Hit Kills");
+  REQUIRE(kills.error.empty());
+  REQUIRE(kills.sets.size() == 1);
+  const auto& when = kills.sets[0].when_nonzero;
+  REQUIRE(when.size() == 3);
+  CHECK(when[0].reg == 26);
+  CHECK_FALSE(when[0].offset);
+  CHECK(when[1].reg == 26);
+  CHECK(when[1].offset == 316);
+  CHECK(when[2].reg == 3);
+  CHECK(when[2].offset == -8);
+  CHECK_FALSE(Named(cfg, "Bad condition").error.empty());
+  CHECK_FALSE(Named(cfg, "Bad offset").error.empty());
+
+  Image image;
+  auto binary = BinaryView::fromModule(image);
+  auto prepared = PrepareSwitchablePatches(binary, {kills});
+  REQUIRE(prepared);
+  REQUIRE(prepared->sets.count(kBase + 4) == 1);
+  CHECK(prepared->sets.find(kBase + 4)->second.when_nonzero.size() == 3);
+}

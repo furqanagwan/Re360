@@ -51,10 +51,18 @@ struct SwitchedWord {
   std::string patch_name;
 };
 
+// A switchable set's condition: a register is non-zero, or (with an offset) so is the guest
+// word at register + offset (read only when the register is non-zero).
+struct PatchNonzero {
+  uint32_t reg = 0;
+  std::optional<int32_t> offset;
+};
+
 struct SwitchedSet {
   uint32_t reg = 0;
   uint64_t value = 0;
   std::optional<uint32_t> lr;
+  std::vector<PatchNonzero> when_nonzero;
   uint32_t patch_index = 0;
   std::string patch_name;
 };
